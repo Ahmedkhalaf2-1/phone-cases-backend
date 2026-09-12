@@ -1,7 +1,14 @@
 /* eslint-disable no-console */
 import 'dotenv/config';
 import { PrismaPg } from '@prisma/adapter-pg';
-import { CouponType, PrismaClient, ProductStatus, StaffRole } from '@prisma/client';
+import {
+  CouponType,
+  HomepageSectionType,
+  PageStatus,
+  PrismaClient,
+  ProductStatus,
+  StaffRole,
+} from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
@@ -225,6 +232,36 @@ async function main(): Promise<void> {
       estimatedDaysMin: 1,
       estimatedDaysMax: 2,
       displayOrder: 2,
+    },
+  });
+
+  // --- Demo homepage section (disabled by default - a real banner must
+  // be enabled deliberately by staff with real copy/media). ---
+  await prisma.homepageSection.upsert({
+    where: { id: '00000000-0000-0000-0000-000000000004' },
+    update: {},
+    create: {
+      id: '00000000-0000-0000-0000-000000000004',
+      type: HomepageSectionType.BANNER,
+      titleEn: 'Sample banner (demo - not live copy)',
+      titleAr: 'بانر تجريبي (نموذج - ليس نصًا فعليًا)',
+      isEnabled: false,
+      displayOrder: 1,
+    },
+  });
+
+  // --- Demo informational page (draft - real legal/policy text must come
+  // from the business owner before publishing). ---
+  await prisma.page.upsert({
+    where: { slug: 'shipping-policy' },
+    update: {},
+    create: {
+      slug: 'shipping-policy',
+      titleEn: 'Shipping Policy (demo placeholder)',
+      titleAr: 'سياسة الشحن (نموذج تجريبي)',
+      bodyEn: '[DEMO CONTENT - not a real policy] Replace this text with the actual shipping policy before publishing.',
+      bodyAr: '[محتوى تجريبي - ليس سياسة فعلية] استبدل هذا النص بسياسة الشحن الفعلية قبل النشر.',
+      status: PageStatus.DRAFT,
     },
   });
 

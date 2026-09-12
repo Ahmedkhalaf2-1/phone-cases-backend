@@ -35,6 +35,8 @@ model StaffUser {
   uploadedMedia    MediaAsset[]
   stockMovements   StockMovement[]
   reviewedReceipts PaymentReceipt[]
+  refunds          Refund[]
+  orderItemReturns OrderItemReturn[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -467,9 +469,10 @@ model ProductVariant {
   stockItemId String?
   stockItem   StockItem? @relation(fields: [stockItemId], references: [id], onDelete: Restrict)
 
-  media      VariantMedia[]
-  cartItems  CartItem[]
-  orderItems OrderItem[]
+  media             VariantMedia[]
+  cartItems         CartItem[]
+  orderItems        OrderItem[]
+  bundleEligibility BundleEligibleVariant[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -510,8 +513,9 @@ model MediaAsset {
   uploadedByStaffId String?
   uploadedByStaff   StaffUser? @relation(fields: [uploadedByStaffId], references: [id], onDelete: SetNull)
 
-  productMedia ProductMedia[]
-  variantMedia VariantMedia[]
+  productMedia     ProductMedia[]
+  variantMedia     VariantMedia[]
+  homepageSections HomepageSection[]
 
   createdAt DateTime @default(now())
 
@@ -675,8 +679,8 @@ model Order {
   cartId String? @unique
   cart   Cart?   @relation(fields: [cartId], references: [id], onDelete: SetNull)
 
-  fulfillmentStatus FulfillmentStatus @default(PENDING)
-  paymentStatus     PaymentStatus     @default(UNPAID)
+  fulfillmentStatus FulfillmentStatus  @default(PENDING)
+  paymentStatus     PaymentStatus      @default(UNPAID)
   // Default only backfills pre-existing rows created before this field
   // existed (see the migration) - every real order created going forward
   // always sends this explicitly (CreateOrderDto.paymentMethod is
@@ -692,11 +696,28 @@ model Order {
   latePaymentFlaggedAt DateTime?
   latePaymentNote      String?
 
-  currency      String
-  subtotal      Int
-  discountTotal Int
-  shippingTotal Int
-  total         Int
+  // Order-level auto-cancellation trigger, independent of any specific
+  // StockReservation - set once at creation from the same TTL used for
+  // stock reservations (INSTAPAY_REVIEW_DEADLINE_MINUTES, or
+  // COD_EXPIRY_MINUTES only if an operator configured one; NULL means
+  // "never auto-expire", the default for CASH_ON_DELIVERY). This is what
+  // actually drives OrdersService.cancelExpiredOrders - not "did a
+  // reservation happen to get released this tick" - so an order with only
+  // isUnlimitedStock items (no StockReservation at all) still gets a real
+  // deadline, and a previously-failed cancellation attempt is always
+  // retried on the next sweep instead of being silently lost. See
+  // docs/BUSINESS_RULES.md and docs/DECISIONS.md.
+  reservationDeadline DateTime?
+
+  currency            String
+  subtotal            Int
+  discountTotal       Int
+  // Total savings from applied bundle promotions, kept separate from the
+  // coupon-only `discountTotal` so each source stays independently
+  // auditable/refundable - see BundleInstance and docs/BUSINESS_RULES.md.
+  bundleDiscountTotal Int    @default(0)
+  shippingTotal       Int
+  total               Int
 
   couponId            String?
   coupon              Coupon? @relation(fields: [couponId], references: [id], onDelete: SetNull)
@@ -725,9 +746,11 @@ model Order {
   shippingAddressLine2 String?
   shippingPostalCode   String?
 
-  items        OrderItem[]
-  reservations StockReservation[]
-  receipts     PaymentReceipt[]
+  items           OrderItem[]
+  reservations    StockReservation[]
+  receipts        PaymentReceipt[]
+  bundleInstances BundleInstance[]
+  refunds         Refund[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -735,6 +758,7 @@ model Order {
   @@index([fulfillmentStatus])
   @@index([paymentStatus])
   @@index([sequenceNumber])
+  @@index([fulfillmentStatus, paymentStatus, reservationDeadline])
   @@map("orders")
 }
 
@@ -764,12 +788,29 @@ model OrderItem {
   unitPrice    Int
   quantity     Int
   lineSubtotal Int
+  // Coupon-only discount allocated to this line - see allocateDiscount()
+  // in order-pricing.util.ts. Kept separate from bundleDiscount below so
+  // each source stays independently auditable/refundable.
   lineDiscount Int @default(0)
-  lineTotal    Int
+
+  // Set only when this line's quantity was part of a two-item bundle
+  // grouping - see BundleInstance. A single cart line whose quantity was
+  // only PARTIALLY consumed by a bundle pairing is split across two
+  // OrderItem rows at order-creation time (one per (line, bundleInstance)
+  // pair) so each row's bundleDiscount stays exact - see
+  // OrdersService.createOrder and docs/BUSINESS_RULES.md.
+  bundleInstanceId String?
+  bundleInstance   BundleInstance? @relation(fields: [bundleInstanceId], references: [id], onDelete: SetNull)
+  bundleDiscount   Int             @default(0)
+
+  lineTotal Int
+
+  returns OrderItemReturn[]
 
   createdAt DateTime @default(now())
 
   @@index([orderId])
+  @@index([bundleInstanceId])
   @@map("order_items")
 }
 
@@ -807,8 +848,8 @@ model PaymentReceipt {
   mimeType   String
   sizeBytes  Int
   // Decoded from the actual file content, not trusted from the client.
-  width  Int
-  height Int
+  width      Int
+  height     Int
 
   status            ReceiptStatus @default(PENDING_REVIEW)
   rejectionReason   String?
@@ -831,4 +872,232 @@ model PaymentReceipt {
   @@index([orderId])
   @@index([expiresAt])
   @@map("payment_receipts")
+}
+
+// ---------------------------------------------------------------------------
+// Content: homepage sections/banners and static informational pages - a
+// small structured CMS with explicit typed fields, deliberately NOT a
+// general page builder (see docs/DECISIONS.md).
+// ---------------------------------------------------------------------------
+
+enum HomepageSectionType {
+  BANNER
+  PROMO_STRIP
+}
+
+// A section only appears on the public homepage once a staff member
+// explicitly sets isEnabled:true - never auto-shown just by being created.
+// mediaAssetId is a plain FK with onDelete: Restrict, so deleting a
+// MediaAsset still referenced by any section (enabled or not) is safely
+// rejected by MediaService.delete exactly like ProductMedia/VariantMedia.
+model HomepageSection {
+  id   String              @id @default(uuid())
+  type HomepageSectionType @default(BANNER)
+
+  titleEn String?
+  titleAr String?
+  bodyEn  String?
+  bodyAr  String?
+
+  mediaAssetId String?
+  mediaAsset   MediaAsset? @relation(fields: [mediaAssetId], references: [id], onDelete: Restrict)
+
+  // A relative path or slug the frontend can route to (e.g.
+  // "/collections/summer-2026"). Not validated against real routes - a
+  // content field, not a router.
+  linkUrl String?
+
+  isEnabled    Boolean @default(false)
+  displayOrder Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isEnabled, displayOrder])
+  @@map("homepage_sections")
+}
+
+enum PageStatus {
+  DRAFT
+  PUBLISHED
+}
+
+// A stable-slug informational page (e.g. "about-us", "shipping-policy").
+// Publicly readable ONLY when status is PUBLISHED - a DRAFT page 404s for
+// anonymous clients exactly like an unpublished Product. Real legal/
+// policy/warranty/delivery content must come from the business owner; any
+// seed content used for local development must say so explicitly in its
+// own body text (see docs/BUSINESS_RULES.md) - never invented and passed
+// off as real.
+model Page {
+  id   String @id @default(uuid())
+  slug String @unique
+
+  titleEn String
+  titleAr String
+  bodyEn  String
+  bodyAr  String
+
+  status      PageStatus @default(DRAFT)
+  publishedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("pages")
+}
+
+// ---------------------------------------------------------------------------
+// Promotions: configurable two-item bundles. A bundle groups exactly two
+// eligible variant units at a fixed total price. Deliberately generic
+// CONFIGURATION, not a hardcoded promotion - a real bundle only takes
+// effect once a staff member supplies real commercial values AND sets
+// isEnabled:true; see BundlesService.assertReadyToEnable and
+// docs/DECISIONS.md.
+// ---------------------------------------------------------------------------
+
+model BundlePromotion {
+  id   String @id @default(uuid())
+  // Internal admin label only - never shown to customers as marketing copy.
+  name String
+
+  // NULL until an owner supplies real commercial values - see
+  // BundlesService.assertReadyToEnable, which refuses isEnabled:true while
+  // either is unset.
+  fixedTotal Int?
+  currency   String?
+
+  // The defining shape of this bundle type: the two grouped units must
+  // come from variants with different PhoneModel ids (e.g. "buy a case for
+  // your iPhone 15 AND your iPhone 16 together for X"). Explicit
+  // configuration, not a hardcoded assumption - a staff member can turn it
+  // off for a bundle that doesn't care about phone-model diversity.
+  requireDifferentPhoneModels Boolean @default(true)
+
+  // Whether more than one instance of this bundle can apply within the
+  // same cart/order (e.g. 4 eligible units -> 2 bundle instances).
+  isRepeatable Boolean @default(true)
+
+  // Explicit coupon-stacking policy: when false (the default - the safer
+  // choice against unintended margin loss) this bundle's discount is
+  // skipped entirely for any cart that currently has a valid coupon
+  // applied, rather than silently combining two separate discounts.
+  allowCouponStacking Boolean @default(false)
+
+  isEnabled Boolean   @default(false)
+  startsAt  DateTime?
+  expiresAt DateTime?
+
+  eligibleVariants BundleEligibleVariant[]
+  instances        BundleInstance[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("bundle_promotions")
+}
+
+// A variant explicitly opted into a bundle. `surchargeAmount` is the
+// explicit, per-variant premium added on top of the bundle's fixedTotal
+// when this variant fills one of the two slots - zero means no surcharge.
+model BundleEligibleVariant {
+  id                String          @id @default(uuid())
+  bundlePromotionId String
+  bundlePromotion   BundlePromotion @relation(fields: [bundlePromotionId], references: [id], onDelete: Cascade)
+  variantId         String
+  variant           ProductVariant  @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  surchargeAmount Int @default(0)
+
+  @@unique([bundlePromotionId, variantId])
+  @@index([variantId])
+  @@map("bundle_eligible_variants")
+}
+
+// One row per bundle grouping actually applied to an order - pure
+// audit/refund traceability, never recomputed after creation. OrderItem
+// rows that were part of this pairing point back at it via
+// bundleInstanceId; see docs/BUSINESS_RULES.md.
+model BundleInstance {
+  id                String          @id @default(uuid())
+  orderId           String
+  order             Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  bundlePromotionId String
+  bundlePromotion   BundlePromotion @relation(fields: [bundlePromotionId], references: [id], onDelete: Restrict)
+
+  // Snapshot of the promotion's config at the moment it was applied -
+  // never re-read from BundlePromotion after creation.
+  fixedTotalApplied Int
+  normalSubtotal    Int
+  discountAmount    Int
+
+  items OrderItem[]
+
+  createdAt DateTime @default(now())
+
+  @@index([orderId])
+  @@index([bundlePromotionId])
+  @@map("bundle_instances")
+}
+
+// ---------------------------------------------------------------------------
+// Minimal manual refund/return administration - staff-only, no customer
+// portal, no automated money movement. A refund records that money was
+// manually sent back to a customer outside this system (bank transfer,
+// InstaPay, cash); a return records that physical goods came back. The
+// two are deliberately independent - a refund can be issued without a
+// physical return (goodwill), and a return can be recorded without a
+// refund yet - see docs/BUSINESS_RULES.md.
+// ---------------------------------------------------------------------------
+
+// One row per manually-issued refund. `amount` can never push an order's
+// total refunded above `Order.total` - enforced transactionally under a
+// row lock on the order, see RefundsService.recordRefund. Payment status
+// (PARTIALLY_REFUNDED / REFUNDED) is always DERIVED from the sum of these
+// rows, never set directly - OrdersService.updatePaymentStatus refuses to
+// accept either as a manually-requested target for exactly this reason.
+model Refund {
+  id      String @id @default(uuid())
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  amount   Int
+  currency String
+  reason   String
+
+  staffUserId String
+  staffUser   StaffUser @relation(fields: [staffUserId], references: [id], onDelete: Restrict)
+
+  // Client-supplied, unique - a retried request with the same key is a
+  // safe no-op replay rather than a second refund, same pattern as
+  // Order.idempotencyKey.
+  idempotencyKey String @unique
+
+  createdAt DateTime @default(now())
+
+  @@index([orderId])
+  @@map("refunds")
+}
+
+// A staff-recorded quantity of one OrderItem that physically came back.
+// Deliberately does NOT touch StockItem.onHand itself - restocking a
+// returned unit (or not, if it's damaged) is a separate, explicit staff
+// decision made through StockItemsService.adjust with its own reason, so
+// a returned printed case is never silently treated as an unused shared
+// blank. See docs/BUSINESS_RULES.md.
+model OrderItemReturn {
+  id          String    @id @default(uuid())
+  orderItemId String
+  orderItem   OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Restrict)
+
+  quantity Int
+  reason   String
+
+  staffUserId String
+  staffUser   StaffUser @relation(fields: [staffUserId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+
+  @@index([orderItemId])
+  @@map("order_item_returns")
 }

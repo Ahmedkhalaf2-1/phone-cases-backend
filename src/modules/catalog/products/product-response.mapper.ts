@@ -12,7 +12,31 @@ function isVariantAvailable(variant: AdminProductWithRelations['variants'][numbe
   return variant.stockItem.onHand - variant.stockItem.reserved > 0;
 }
 
-function toPublicVariant(variant: AdminProductWithRelations['variants'][number], locale: Locale) {
+/**
+ * A variant-specific image wins if one was uploaded; otherwise falls back
+ * to the parent product's own primary image, so a variant is never
+ * thumbnail-less just because nobody attached a photo to that specific
+ * phone model/case combo. Mirrors CartPricingService's pickThumbnail -
+ * both read the same take:1/isPrimary-then-displayOrder media includes.
+ */
+function pickVariantThumbnail(
+  variant: AdminProductWithRelations['variants'][number],
+  product: AdminProductWithRelations,
+  locale: Locale,
+): { url: string; altText: string } | null {
+  const entry = variant.media[0] ?? product.media[0];
+  if (!entry) return null;
+  return {
+    url: entry.mediaAsset.url,
+    altText: pickLocalized(entry.mediaAsset.altTextEn ?? '', entry.mediaAsset.altTextAr, locale),
+  };
+}
+
+function toPublicVariant(
+  variant: AdminProductWithRelations['variants'][number],
+  product: AdminProductWithRelations,
+  locale: Locale,
+) {
   return {
     id: variant.id,
     sku: variant.sku,
@@ -20,6 +44,7 @@ function toPublicVariant(variant: AdminProductWithRelations['variants'][number],
     compareAtPrice: variant.compareAtPrice,
     currency: variant.currency,
     isAvailable: isVariantAvailable(variant),
+    thumbnail: pickVariantThumbnail(variant, product, locale),
     phoneModel: variant.phoneModel
       ? {
           id: variant.phoneModel.id,
@@ -100,6 +125,6 @@ export function toPublicProductDetail(product: AdminProductWithRelations, locale
   return {
     ...toPublicProductSummary(product, locale),
     media: toPublicMedia(product.media),
-    variants: product.variants.map((variant) => toPublicVariant(variant, locale)),
+    variants: product.variants.map((variant) => toPublicVariant(variant, product, locale)),
   };
 }

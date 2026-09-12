@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
+import { Prisma } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import type { StringValue } from 'ms';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -36,6 +37,7 @@ export class AuthService {
     }
 
     const { accessToken, refreshToken, expiresIn } = await this.issueTokenPair(
+      this.prisma,
       staff.id,
       staff.email,
       staff.role,
@@ -58,6 +60,21 @@ export class AuthService {
     };
   }
 
+  /**
+   * Rotation is atomic: revoking the presented token and minting its
+   * successor happen in one transaction, gated by a conditional UPDATE
+   * (`WHERE revokedAt IS NULL`) rather than a separate read-then-write.
+   * Without this, two concurrent requests presenting the same
+   * not-yet-revoked token could both pass the initial read check and
+   * both mint a valid successor session before either revocation
+   * committed. The guard is what actually prevents that: only one
+   * transaction's UPDATE can ever match a token still unrevoked, so a
+   * second concurrent attempt is guaranteed to see it already revoked and
+   * fail with the same "invalid or expired" response a genuine reuse
+   * attempt would get - it cannot distinguish "someone else refreshed
+   * first" from token theft, which is the correct, conservative behavior
+   * either way. See docs/DECISIONS.md.
+   */
   async refresh(rawRefreshToken: string, ip: string | undefined): Promise<AuthResponseDto> {
     const tokenHash = this.hashToken(rawRefreshToken);
     const existing = await this.prisma.refreshToken.findUnique({
@@ -68,28 +85,38 @@ export class AuthService {
     if (!existing || existing.revokedAt || existing.expiresAt < new Date()) {
       throw new UnauthorizedException('Refresh token is invalid or expired');
     }
-
     if (!existing.staffUser.isActive) {
       throw new UnauthorizedException('Staff account is inactive');
     }
-
     const { staffUser } = existing;
-    const { accessToken, refreshToken, expiresIn, refreshTokenId } = await this.issueTokenPair(
-      staffUser.id,
-      staffUser.email,
-      staffUser.role,
-      ip,
-    );
 
-    await this.prisma.refreshToken.update({
-      where: { id: existing.id },
-      data: { revokedAt: new Date(), replacedByTokenId: refreshTokenId },
+    const tokenPair = await this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.refreshToken.updateMany({
+        where: { id: existing.id, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      if (claimed.count === 0) {
+        throw new UnauthorizedException('Refresh token is invalid or expired');
+      }
+
+      const issued = await this.issueTokenPair(
+        tx,
+        staffUser.id,
+        staffUser.email,
+        staffUser.role,
+        ip,
+      );
+      await tx.refreshToken.update({
+        where: { id: existing.id },
+        data: { replacedByTokenId: issued.refreshTokenId },
+      });
+      return issued;
     });
 
     return {
-      accessToken,
-      refreshToken,
-      expiresIn,
+      accessToken: tokenPair.accessToken,
+      refreshToken: tokenPair.refreshToken,
+      expiresIn: tokenPair.expiresIn,
       staff: {
         id: staffUser.id,
         email: staffUser.email,
@@ -108,6 +135,7 @@ export class AuthService {
   }
 
   private async issueTokenPair(
+    client: PrismaService | Prisma.TransactionClient,
     staffId: string,
     email: string,
     role: JwtPayload['role'],
@@ -129,7 +157,7 @@ export class AuthService {
     const refreshExpiresIn = this.configService.getOrThrow<string>('JWT_REFRESH_EXPIRES_IN');
     const expiresAt = new Date(Date.now() + this.parseDurationMs(refreshExpiresIn));
 
-    const created = await this.prisma.refreshToken.create({
+    const created = await client.refreshToken.create({
       data: {
         staffUserId: staffId,
         tokenHash: this.hashToken(refreshToken),

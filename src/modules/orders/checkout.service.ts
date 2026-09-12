@@ -3,6 +3,7 @@ import { ResourceNotFoundException } from '../../common/exceptions/app.exception
 import { DEFAULT_LOCALE, Locale } from '../../common/i18n/localized-field';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CART_INCLUDE, CartPricingService } from '../cart/cart-pricing.service';
+import { BundlesService } from '../promotions/bundles/bundles.service';
 import { computeShippingPrice, ShippingService } from '../shipping/shipping.service';
 import { CheckoutQuoteDto } from './dto/checkout-quote.dto';
 
@@ -10,6 +11,7 @@ export interface CheckoutQuote {
   items: ReturnType<CartPricingService['buildView']>['items'];
   subtotal: number;
   discountTotal: number;
+  bundleDiscountTotal: number;
   shippingTotal: number;
   total: number;
   currency: string;
@@ -33,6 +35,7 @@ export class CheckoutService {
     private readonly prisma: PrismaService,
     private readonly pricingService: CartPricingService,
     private readonly shippingService: ShippingService,
+    private readonly bundlesService: BundlesService,
   ) {}
 
   async quote(
@@ -48,7 +51,8 @@ export class CheckoutService {
       throw new ResourceNotFoundException('Cart', cartId);
     }
 
-    const priced = this.pricingService.buildView(cart, locale);
+    const activeBundles = await this.bundlesService.findActiveForPricing();
+    const priced = this.pricingService.buildView(cart, locale, activeBundles);
     const shippingRate = await this.shippingService.resolveRateForCheckout(
       dto.shippingRateId,
       dto.country,
@@ -63,6 +67,7 @@ export class CheckoutService {
       items: priced.items,
       subtotal: priced.subtotal,
       discountTotal: priced.discountTotal,
+      bundleDiscountTotal: priced.bundleDiscountTotal,
       shippingTotal,
       total: priced.total + shippingTotal,
       currency: priced.currency,

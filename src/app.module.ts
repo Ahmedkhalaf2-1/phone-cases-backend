@@ -11,9 +11,11 @@ import { AuditLogModule } from './modules/audit-log/audit-log.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { CartModule } from './modules/cart/cart.module';
 import { CatalogModule } from './modules/catalog/catalog.module';
+import { ContentModule } from './modules/content/content.module';
 import { HealthModule } from './modules/health/health.module';
 import { StockItemsModule } from './modules/inventory/stock-items/stock-items.module';
 import { OrdersModule } from './modules/orders/orders.module';
+import { BundlesModule } from './modules/promotions/bundles/bundles.module';
 import { CouponsModule } from './modules/promotions/coupons/coupons.module';
 import { ShippingModule } from './modules/shipping/shipping.module';
 import { StaffModule } from './modules/staff/staff.module';
@@ -37,9 +39,11 @@ import { PrismaModule } from './prisma/prisma.module';
     CatalogModule,
     StockItemsModule,
     CouponsModule,
+    BundlesModule,
     CartModule,
     ShippingModule,
     OrdersModule,
+    ContentModule,
     HealthModule,
   ],
   providers: [

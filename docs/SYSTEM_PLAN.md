@@ -69,6 +69,14 @@ src/
       media/         upload, storage driver abstraction, product/variant attachment
     inventory/
       stock-items/   physical stock counter (Phase 1: CRUD + atomic adjust only)
+    promotions/
+      coupons/       fixed/percentage discount codes
+      bundles/       configurable two-item bundle promotions (Phase 5)
+    content/
+      homepage-sections/  homepage banners/sections (Phase 5)
+      pages/              slug-based informational pages (Phase 5)
+    orders/
+      refunds/       manual refund + item-return administration (Phase 5)
     health/          liveness/readiness probes
 ```
 
@@ -84,14 +92,22 @@ Webhook routes: none yet (Phase 4, payments).
   filter/sort/pagination, audit log, basic stock counters, seed data, OpenAPI docs, integration
   tests.
 - **Phase 2 — Purchase rules**: reservations and stock movement history, guest carts, pricing
-  engine (including bundle/"choose N" promotions), coupons, shipping rate quotation.
+  engine, coupons, shipping rate quotation. (The bundle/"choose N" promotion originally scoped here
+  was deferred to Phase 5, once the business decisions it needed were answered as configuration.)
 - **Phase 3 — Orders**: checkout revalidation and quotes, idempotent order creation, immutable
   order snapshots, fulfillment/payment status machines, admin order operations, secure guest order
   tracking.
-- **Phase 4 — Payments and operational readiness**: real payment provider integration, webhook
-  verification and recovery, background jobs for reservation expiry/retries, production object
-  storage for media, security review, deployment docs.
-- **Phase 5 — Optional extensions**: customer accounts, wishlists, moderated reviews, back-in-stock
+- **Phase 4 — Payments and operational readiness**: manual payment methods (cash on delivery,
+  InstaPay manual with staff-verified screenshots) implemented; a real online payment gateway
+  remains out of scope by decision, not a gap. Security review, deployment docs.
+- **Phase 5 — Checkout/order correctness hardening, CMS, bundle promotions, manual refunds**: closed
+  a specific list of concurrency/correctness findings across checkout, order status transitions,
+  reservation expiry, receipt review, and refresh-token rotation; fixed a public-catalog boolean
+  query bug and two storefront-media gaps; delivered the previously-deferred bundle promotion
+  (disabled until an owner configures real values), a small structured CMS (homepage sections +
+  informational pages), and minimal staff-only manual refund/return administration. See
+  `docs/PROGRESS.md`, `docs/DECISIONS.md` #34-44, and `docs/BUSINESS_RULES.md` §27-32.
+- **Phase 6 — Optional extensions**: customer accounts, wishlists, moderated reviews, back-in-stock
   notifications, personalization. Explicitly out of scope until the core purchase flow is solid.
 
 Do not present a phase's endpoints as complete before that phase has been implemented and tested.

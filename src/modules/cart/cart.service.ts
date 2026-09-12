@@ -4,6 +4,7 @@ import { CartStatus, ProductStatus, StockItem } from '@prisma/client';
 import { AppException, ResourceNotFoundException } from '../../common/exceptions/app.exception';
 import { Locale } from '../../common/i18n/localized-field';
 import { PrismaService } from '../../prisma/prisma.service';
+import { BundlesService } from '../promotions/bundles/bundles.service';
 import { AddCartItemDto, MAX_CART_ITEM_QUANTITY } from './dto/add-cart-item.dto';
 import {
   CART_INCLUDE,
@@ -20,17 +21,21 @@ export class CartService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly pricingService: CartPricingService,
+    private readonly bundlesService: BundlesService,
   ) {}
 
   async createCart(): Promise<{ token: string; cart: CartView }> {
     const token = randomBytes(CART_TOKEN_BYTES).toString('base64url');
     const cart = await this.prisma.cart.create({ data: { token }, include: CART_INCLUDE });
+    // A freshly created cart has no items yet, so there is nothing to
+    // bundle - no need to fetch active bundles just to pass an empty cart.
     return { token, cart: this.pricingService.buildView(cart) };
   }
 
   async getCart(cartId: string, locale?: Locale): Promise<CartView> {
     const cart = await this.loadCartOrThrow(cartId);
-    return this.pricingService.buildView(cart, locale);
+    const activeBundles = await this.bundlesService.findActiveForPricing();
+    return this.pricingService.buildView(cart, locale, activeBundles);
   }
 
   /**
@@ -67,7 +72,13 @@ export class CartService {
         `Quantity for a single item cannot exceed ${MAX_CART_ITEM_QUANTITY}`,
       );
     }
-    this.assertSoftAvailability(variant.stockItem, variant.isUnlimitedStock, newQuantity);
+    await this.assertSoftAvailability(
+      cartId,
+      variant.stockItem,
+      variant.isUnlimitedStock,
+      newQuantity,
+      existing ? [existing.id] : [],
+    );
 
     await this.prisma.cartItem.upsert({
       where: { cartId_variantId: { cartId, variantId: dto.variantId } },
@@ -96,7 +107,13 @@ export class CartService {
     if (quantity === 0) {
       await this.prisma.cartItem.delete({ where: { id: itemId } });
     } else {
-      this.assertSoftAvailability(item.variant.stockItem, item.variant.isUnlimitedStock, quantity);
+      await this.assertSoftAvailability(
+        cartId,
+        item.variant.stockItem,
+        item.variant.isUnlimitedStock,
+        quantity,
+        [itemId],
+      );
       await this.prisma.cartItem.update({ where: { id: itemId }, data: { quantity } });
     }
 
@@ -155,10 +172,15 @@ export class CartService {
       (existingTargetItem?.quantity ?? 0) + originalItem.quantity,
       MAX_CART_ITEM_QUANTITY,
     );
-    this.assertSoftAvailability(
+    const excludeItemIds = existingTargetItem
+      ? [originalItem.id, existingTargetItem.id]
+      : [originalItem.id];
+    await this.assertSoftAvailability(
+      cartId,
       newVariant.stockItem,
       newVariant.isUnlimitedStock,
       resultingQuantity,
+      excludeItemIds,
     );
 
     await this.prisma.$transaction(async (tx) => {
@@ -261,12 +283,24 @@ export class CartService {
    * stay consistent with the same rule in CartPricingService/
    * product-response.mapper.ts, since a variant flagged unavailable there
    * must not remain addable to the cart here.
+   *
+   * Multiple cart lines (different variants - e.g. different print-on-
+   * demand designs) can share the same StockItem, so this must consider
+   * their COMBINED demand, not just the one line being added/updated in
+   * isolation - otherwise two lines each individually "within stock"
+   * could together exceed it, matching the aggregation
+   * OrdersService.createOrder actually enforces atomically at checkout
+   * (see docs/DATA_MODEL.md §4). `excludeItemIds` leaves out cart rows
+   * whose quantity is already folded into `requestedQuantity` by the
+   * caller (the line being updated, or a line being merged away).
    */
-  private assertSoftAvailability(
+  private async assertSoftAvailability(
+    cartId: string,
     stockItem: StockItem | null,
     isUnlimitedStock: boolean,
     requestedQuantity: number,
-  ): void {
+    excludeItemIds: string[] = [],
+  ): Promise<void> {
     if (!stockItem) {
       if (!isUnlimitedStock) {
         throw new AppException(
@@ -277,11 +311,22 @@ export class CartService {
       }
       return;
     }
+
+    const otherLines = await this.prisma.cartItem.findMany({
+      where: {
+        cartId,
+        variant: { stockItemId: stockItem.id },
+        ...(excludeItemIds.length > 0 ? { id: { notIn: excludeItemIds } } : {}),
+      },
+      select: { quantity: true },
+    });
+    const otherQuantity = otherLines.reduce((sum, line) => sum + line.quantity, 0);
+
     const available = stockItem.onHand - stockItem.reserved;
-    if (requestedQuantity > available) {
+    if (requestedQuantity + otherQuantity > available) {
       throw new AppException(
         'INSUFFICIENT_STOCK',
-        `Only ${Math.max(available, 0)} unit(s) currently available for this item`,
+        `Only ${Math.max(available - otherQuantity, 0)} unit(s) currently available for this item`,
         HttpStatus.CONFLICT,
       );
     }

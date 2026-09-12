@@ -191,27 +191,39 @@ export class ReceiptsService {
 
   /**
    * Atomically claims an unattached receipt for an order, inside the
-   * caller's own transaction (OrdersService.createOrder) - the
-   * `orderId: null` guard in the WHERE clause is what actually prevents
-   * two concurrent order-creation attempts from both successfully
-   * claiming the same receipt (the same conditional-UPDATE pattern used
-   * everywhere else in this codebase for this exact class of race - see
-   * ReservationsService, coupon usage). `expiresAt` is cleared so the
-   * cleanup sweep can never match this row again.
+   * caller's own transaction (OrdersService.createOrder). The pre-
+   * transaction check (`findOwnedUnattachedOrThrow`) is a fast, friendly
+   * fail for the common case, but is NOT what actually enforces
+   * correctness under concurrency - the WHERE clause here is: it
+   * re-checks cart ownership, unattached status, and expiry all in the
+   * same conditional UPDATE that performs the claim, using the same
+   * pattern as everywhere else in this codebase for this exact class of
+   * race (ReservationsService, coupon usage). Two concurrent order-
+   * creation attempts referencing the same receipt, a receipt that
+   * expired in the gap between the pre-check and the transaction, or a
+   * receipt whose cart doesn't match can never both/either succeed.
+   * `expiresAt` is cleared so the cleanup sweep can never match this row
+   * again.
    */
   async attachToOrderInTransaction(
     tx: Prisma.TransactionClient,
+    cartId: string,
     receiptId: string,
     orderId: string,
   ): Promise<void> {
     const result = await tx.paymentReceipt.updateMany({
-      where: { id: receiptId, orderId: null },
+      where: {
+        id: receiptId,
+        cartId,
+        orderId: null,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+      },
       data: { orderId, expiresAt: null },
     });
     if (result.count === 0) {
       throw new AppException(
         'RECEIPT_ALREADY_ATTACHED',
-        'This receipt has already been used for a different order',
+        'This receipt is no longer available to attach - it may have already been used, expired, or does not belong to this cart',
         HttpStatus.CONFLICT,
       );
     }
@@ -277,18 +289,74 @@ export class ReceiptsService {
       );
     }
 
+    // File validation/storage (CPU/I/O work) happens before opening a
+    // transaction; only the final eligibility recheck + DB write is
+    // transactional, so a DB transaction is never held open across image
+    // decoding or a disk write.
     const decoded = await this.decodeAndValidate(file);
-    const receipt = await this.persist(decoded, { cartId, orderId: order.id, expiresAt: null });
+    const saved = await this.storage.save(decoded.buffer, decoded.mimeType);
+    try {
+      const receipt = await this.prisma.$transaction(async (tx) => {
+        // Re-verify eligibility against the freshest state right before
+        // the write - closes the window between the check above and this
+        // transaction, so two concurrent replacement uploads (or a
+        // replacement racing an admin accept/cancel) can't both succeed.
+        const freshOrder = await tx.order.findUniqueOrThrow({ where: { id: order.id } });
+        if (freshOrder.fulfillmentStatus === FulfillmentStatus.CANCELLED) {
+          throw new AppException(
+            'ORDER_CANCELLED',
+            'This order has been cancelled - a replacement receipt cannot be attached to it',
+            HttpStatus.CONFLICT,
+          );
+        }
+        if (freshOrder.paymentStatus === PaymentStatus.PAID) {
+          throw new AppException(
+            'ORDER_ALREADY_PAID',
+            'This order has already been marked paid - no replacement receipt is needed',
+            HttpStatus.CONFLICT,
+          );
+        }
+        const freshLatest = await tx.paymentReceipt.findFirst({
+          where: { orderId: order.id },
+          orderBy: { createdAt: 'desc' },
+        });
+        if (!freshLatest || freshLatest.status !== ReceiptStatus.REJECTED) {
+          throw new AppException(
+            'REPLACEMENT_NOT_ALLOWED',
+            freshLatest
+              ? `The current receipt is ${freshLatest.status} - a replacement can only be submitted after rejection`
+              : 'There is no receipt on file to replace',
+            HttpStatus.CONFLICT,
+          );
+        }
 
-    await this.auditLogService.record({
-      staffUserId: null,
-      action: 'payment_receipt.replace',
-      entityType: 'Order',
-      entityId: order.id,
-      metadata: { receiptId: receipt.id },
-    });
+        return tx.paymentReceipt.create({
+          data: {
+            cartId,
+            orderId: order.id,
+            storageKey: saved.storageKey,
+            mimeType: decoded.mimeType,
+            sizeBytes: decoded.sizeBytes,
+            width: decoded.width,
+            height: decoded.height,
+            expiresAt: null,
+          },
+        });
+      });
 
-    return { receiptId: receipt.id };
+      await this.auditLogService.record({
+        staffUserId: null,
+        action: 'payment_receipt.replace',
+        entityType: 'Order',
+        entityId: order.id,
+        metadata: { receiptId: receipt.id },
+      });
+
+      return { receiptId: receipt.id };
+    } catch (error) {
+      await this.storage.delete(saved.storageKey);
+      throw error;
+    }
   }
 
   /** Guest access to their own upload (any cart-owned receipt, attached or not). */
@@ -320,6 +388,15 @@ export class ReceiptsService {
    * Order.paymentStatus itself: rejecting proof just means the order
    * stays UNPAID/awaiting-verification, exactly as it already was. The
    * owning guest can then submit a replacement (uploadReplacementForCart).
+   *
+   * The transition itself is the atomic guard (`WHERE status =
+   * 'PENDING_REVIEW'`), not a separate read-then-branch - the same
+   * pattern used for stock reservations/coupons elsewhere in this
+   * codebase. This is what actually makes concurrent reject vs. accept
+   * (OrdersService.updatePaymentStatus marking PAID, which also flips a
+   * PENDING_REVIEW receipt to ACCEPTED) safe: whichever conditional
+   * UPDATE commits first wins, and the loser's WHERE clause simply no
+   * longer matches instead of silently overwriting the winner's outcome.
    */
   async rejectReceipt(
     orderId: string,
@@ -327,20 +404,8 @@ export class ReceiptsService {
     reason: string,
     actor: AuthenticatedStaff,
   ): Promise<PaymentReceipt> {
-    const receipt = await this.prisma.paymentReceipt.findUnique({ where: { id: receiptId } });
-    if (!receipt || receipt.orderId !== orderId) {
-      throw new ResourceNotFoundException('PaymentReceipt', receiptId);
-    }
-    if (receipt.status !== ReceiptStatus.PENDING_REVIEW) {
-      throw new AppException(
-        'INVALID_STATE_TRANSITION',
-        `Receipt is already ${receipt.status} - only a receipt pending review can be rejected`,
-        HttpStatus.CONFLICT,
-      );
-    }
-
-    const updated = await this.prisma.paymentReceipt.update({
-      where: { id: receiptId },
+    const result = await this.prisma.paymentReceipt.updateMany({
+      where: { id: receiptId, orderId, status: ReceiptStatus.PENDING_REVIEW },
       data: {
         status: ReceiptStatus.REJECTED,
         rejectionReason: reason,
@@ -348,6 +413,17 @@ export class ReceiptsService {
         reviewedAt: new Date(),
       },
     });
+    if (result.count === 0) {
+      const receipt = await this.prisma.paymentReceipt.findUnique({ where: { id: receiptId } });
+      if (!receipt || receipt.orderId !== orderId) {
+        throw new ResourceNotFoundException('PaymentReceipt', receiptId);
+      }
+      throw new AppException(
+        'INVALID_STATE_TRANSITION',
+        `Receipt is already ${receipt.status} - only a receipt pending review can be rejected`,
+        HttpStatus.CONFLICT,
+      );
+    }
 
     await this.auditLogService.record({
       staffUserId: actor.id,
@@ -357,7 +433,40 @@ export class ReceiptsService {
       metadata: { receiptId, reason },
     });
 
-    return updated;
+    return this.prisma.paymentReceipt.findUniqueOrThrow({ where: { id: receiptId } });
+  }
+
+  /**
+   * Atomically accepts whichever receipt is currently PENDING_REVIEW for
+   * an order, inside the same transaction as
+   * OrdersService.updatePaymentStatus's write to PAID - so "mark this
+   * InstaPay order paid" and "accept its receipt" are one atomic action,
+   * never a payment confirmation that leaves a stale pending receipt
+   * behind. Throws if there is no receipt currently eligible for review -
+   * an InstaPay order can only be marked paid by accepting an actual
+   * pending receipt, never with none on file (e.g. the last one was
+   * rejected and never replaced).
+   */
+  async acceptPendingReceiptInTransaction(
+    tx: Prisma.TransactionClient,
+    orderId: string,
+    staffUserId: string,
+  ): Promise<void> {
+    const result = await tx.paymentReceipt.updateMany({
+      where: { orderId, status: ReceiptStatus.PENDING_REVIEW },
+      data: {
+        status: ReceiptStatus.ACCEPTED,
+        reviewedByStaffId: staffUserId,
+        reviewedAt: new Date(),
+      },
+    });
+    if (result.count === 0) {
+      throw new AppException(
+        'NO_PENDING_RECEIPT',
+        'This order has no receipt currently pending review - it may have been rejected and not yet replaced',
+        HttpStatus.CONFLICT,
+      );
+    }
   }
 
   /**

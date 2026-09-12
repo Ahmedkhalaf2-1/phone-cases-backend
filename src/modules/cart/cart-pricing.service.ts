@@ -1,16 +1,35 @@
 import { Injectable } from '@nestjs/common';
 import { CouponType, Prisma } from '@prisma/client';
 import { DEFAULT_LOCALE, Locale, pickLocalized } from '../../common/i18n/localized-field';
+import {
+  BundlePricingConfig,
+  BundleSourceLine,
+  computeBundleInstances,
+} from '../promotions/bundles/bundle-pricing.util';
+
+// Fetches only the ONE image that will actually be shown (primary first,
+// then lowest displayOrder) directly at the DB level via `take: 1` -
+// never the full media list just to pick one in application code. This
+// is one nested query per relation (variant media, product media),
+// batched by Prisma across all cart items in a single round trip each -
+// not one query per item - so a cart with many lines stays O(1) queries,
+// not O(n).
+const PRIMARY_MEDIA_INCLUDE = {
+  include: { mediaAsset: true },
+  orderBy: [{ isPrimary: 'desc' as const }, { displayOrder: 'asc' as const }],
+  take: 1,
+};
 
 export const CART_INCLUDE = {
   items: {
     include: {
       variant: {
         include: {
-          product: true,
+          product: { include: { media: PRIMARY_MEDIA_INCLUDE } },
           phoneModel: { include: { brand: true } },
           caseType: true,
           stockItem: true,
+          media: PRIMARY_MEDIA_INCLUDE,
         },
       },
     },
@@ -31,11 +50,14 @@ export interface CartItemView {
   productName: string;
   phoneModel: { slug: string; name: string; brand: string } | null;
   caseType: { slug: string; name: string } | null;
+  thumbnail: { url: string; altText: string } | null;
   unitPrice: number;
   quantity: number;
   lineSubtotal: number;
   isAvailable: boolean;
   unavailableReason?: string;
+  /** This line's share of any applied bundle discount(s) - see bundleDiscountTotal. */
+  bundleDiscount: number;
 }
 
 export interface CartView {
@@ -44,6 +66,8 @@ export interface CartView {
   items: CartItemView[];
   subtotal: number;
   discountTotal: number;
+  /** Total savings from applied bundle promotions - see BundlesService. */
+  bundleDiscountTotal: number;
   total: number;
   coupon: { code: string; type: CouponType; value: number } | null;
   couponWarning?: string;
@@ -91,7 +115,19 @@ export function findCouponValidityError(
 
 @Injectable()
 export class CartPricingService {
-  buildView(cart: CartWithRelations, locale: Locale = DEFAULT_LOCALE): CartView {
+  /**
+   * `activeBundles` is fetched by the caller (BundlesService) and passed
+   * in rather than queried here, so this method stays a pure function of
+   * its inputs - easy to unit test and guaranteed to compute bundle
+   * discounts with the EXACT SAME logic (`computeBundleInstances`) here,
+   * in CheckoutService's quote, and in OrdersService.createOrder. See
+   * docs/BUSINESS_RULES.md.
+   */
+  buildView(
+    cart: CartWithRelations,
+    locale: Locale = DEFAULT_LOCALE,
+    activeBundles: BundlePricingConfig[] = [],
+  ): CartView {
     const items = cart.items.map((item) => this.toItemView(item, locale));
     const subtotal = items
       .filter((item) => item.isAvailable)
@@ -108,13 +144,45 @@ export class CartPricingService {
       }
     }
 
+    const couponIsApplied = Boolean(cart.coupon) && !couponWarning;
+    const bundleSourceLines: BundleSourceLine[] = cart.items
+      .map((item, lineIndex) => ({ item, lineIndex }))
+      .filter(({ lineIndex }) => items[lineIndex].isAvailable)
+      .map(({ item, lineIndex }) => ({
+        lineIndex,
+        variantId: item.variant.id,
+        phoneModelId: item.variant.phoneModelId,
+        unitPrice: item.variant.price,
+        quantity: item.quantity,
+        currency: item.variant.currency,
+      }));
+    const bundleInstances = computeBundleInstances(bundleSourceLines, activeBundles, {
+      couponIsApplied,
+    });
+
+    const bundleDiscountByLine = new Map<number, number>();
+    let bundleDiscountTotal = 0;
+    for (const instance of bundleInstances) {
+      bundleDiscountTotal += instance.discountAmount;
+      for (const allocation of instance.unitAllocations) {
+        bundleDiscountByLine.set(
+          allocation.lineIndex,
+          (bundleDiscountByLine.get(allocation.lineIndex) ?? 0) + allocation.discount,
+        );
+      }
+    }
+    items.forEach((item, index) => {
+      item.bundleDiscount = bundleDiscountByLine.get(index) ?? 0;
+    });
+
     return {
       id: cart.id,
       currency: cart.currency,
       items,
       subtotal,
       discountTotal,
-      total: subtotal - discountTotal,
+      bundleDiscountTotal,
+      total: subtotal - discountTotal - bundleDiscountTotal,
       coupon: cart.coupon
         ? { code: cart.coupon.code, type: cart.coupon.type, value: cart.coupon.value }
         : null,
@@ -162,11 +230,34 @@ export class CartPricingService {
             name: pickLocalized(variant.caseType.nameEn, variant.caseType.nameAr, locale),
           }
         : null,
+      thumbnail: this.pickThumbnail(variant, locale),
       unitPrice: variant.price,
       quantity: item.quantity,
       lineSubtotal: variant.price * item.quantity,
       isAvailable: !unavailableReason,
       unavailableReason,
+      bundleDiscount: 0,
+    };
+  }
+
+  /**
+   * A variant-specific image (e.g. this exact phone model + case combo)
+   * wins if one was uploaded; otherwise falls back to the parent
+   * product's own primary image, so a cart line is never thumbnail-less
+   * just because nobody attached a photo to that specific variant. Never
+   * a private receipt path - this only ever reads MediaAsset rows
+   * attached through ProductMedia/VariantMedia, a completely separate
+   * table from PaymentReceipt (see docs/BUSINESS_RULES.md §26).
+   */
+  private pickThumbnail(
+    variant: CartItemWithRelations['variant'],
+    locale: Locale,
+  ): { url: string; altText: string } | null {
+    const entry = variant.media[0] ?? variant.product.media[0];
+    if (!entry) return null;
+    return {
+      url: entry.mediaAsset.url,
+      altText: pickLocalized(entry.mediaAsset.altTextEn ?? '', entry.mediaAsset.altTextAr, locale),
     };
   }
 }

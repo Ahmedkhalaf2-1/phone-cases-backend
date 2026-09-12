@@ -306,6 +306,13 @@ future work rather than bolted onto `CartPricingService`/`OrdersService` specula
 block any part of the standard (non-bundle) order flow, which is complete and tested independent of
 it.
 
+**Superseded by #42-43.** All five questions above are now answered as CONFIGURATION (not hardcoded
+business rules): eligible variants are an explicit per-bundle list; the price is one fixed total
+plus explicit optional per-variant surcharges; repeatability is an explicit flag; premium variants
+are explicitly opted in with a surcharge rather than excluded; coupon stacking is an explicit
+per-bundle boolean. A real bundle still cannot go live until an owner actually fills in these values
+and enables it (see #43) - this entry is kept for history, not because the gap is still open.
+
 ## Phase 4 — security review findings
 
 ### 24. Unbounded free-text fields on the public, unauthenticated order/coupon endpoints
@@ -481,3 +488,224 @@ produces a clean, stable error code instead of falling through to the generic `H
 a one-line, targeted fix required for the receipt size-limit requirement to have a clean API
 contract - it was not previously exercised by any test (`MediaAdminController`'s upload endpoint has
 the same underlying behavior and benefits from the same fix, at no extra cost).
+
+## Phase 5 — checkout/order concurrency correctness, storefront fixes, CMS, bundles, refunds
+
+A focused pass against a specific list of suspected concurrency/correctness findings, followed by
+three previously-deferred features (CMS content, bundle promotions, manual refunds/returns).
+
+### 34. Idempotency scoping: cart ownership and payload hash checked on both the lookup AND the P2002 fallback path
+
+**Confirmed present.** `OrdersService.createOrder`'s initial `idempotencyKey` lookup returned
+whatever order had that key, without checking it belonged to the calling cart or that the request
+body actually matched. The `P2002` unique-constraint fallback (two simultaneous requests racing to
+insert the same key) had the identical gap on the losing request's path. Fixed by applying the same
+two checks (`existingByKey.cartId !== cartId`, `existingByKey.idempotencyRequestHash !==
+requestHash`) on both paths: a genuine same-cart-same-payload retry returns the original order; a
+key reused for a different payload or a different cart gets `409 IDEMPOTENCY_KEY_REUSED` either way.
+Verified in `test/order-concurrency.e2e-spec.ts` ("rejects a key already used by a different cart,
+even with an identical payload").
+
+**A related, deliberate non-change:** the task description raised whether the quote contract
+(`expectedTotal`) sufficiently identifies what the customer actually agreed to, suggesting a
+cart-contents "fingerprint" might be needed. Once every price/stock/coupon input moved to being
+read fresh INSIDE the transaction (see #35 below) rather than from a pre-transaction snapshot, the
+only remaining staleness risk is a coincidental total match with *different* cart contents - and
+since only the cart's own owner (the holder of its token) can ever modify it, that scenario is
+self-inflicted, not a fraud or cross-customer risk. No separate fingerprint field was added; adding
+one would be complexity without a corresponding closed risk.
+
+### 35. Order-level `reservationDeadline`, deliberately decoupled from any one `StockReservation.expiresAt`
+
+**Root cause of several separate findings:** the expiry sweep only ever looked at
+`StockReservation` rows, so (a) an order made entirely of `isUnlimitedStock` items had nothing
+driving its cancellation at all, and (b) "was this order's stock reservation released" and "should
+this order be cancelled" were the same question by accident, not by design - correct only as long as
+every order had exactly the reservations its payment-method policy implied, which stopped being true
+the moment COD needed a different policy (#36) than InstaPay.
+
+**Fix:** added `Order.reservationDeadline DateTime?` (migration
+`20260912104720_order_level_expiry_deadline`), set once at order creation from the same
+`ttlMinutes` value used for stock reservations, but tracked as its own field rather than derived.
+`OrdersService.cancelExpiredOrders` selects `PENDING`/`UNPAID` orders whose `reservationDeadline`
+has passed and cancels each one (atomically, guarded, releasing its own reservations and coupon
+usage) independent of whether it has any `StockReservation` rows at all. `OrderExpiryService.sweepAndCancel`
+now runs both sweeps (reservation release, order cancellation) and returns both counts.
+
+### 36. Payment-method-specific expiry policy: COD gets no default deadline; reviewed COD stock-consumption timing, found already correct
+
+`RESERVATION_TTL_MINUTES` (a single, one-size-fits-all default) was removed entirely.
+`ttlMinutes`/`reservationDeadline` are now computed per order from its `paymentMethod`:
+`INSTAPAY_MANUAL` always uses `INSTAPAY_REVIEW_DEADLINE_MINUTES` (unchanged, default 24h);
+`CASH_ON_DELIVERY` uses the new, optional `COD_EXPIRY_MINUTES` (unset by default, meaning "never
+auto-expire" - `null` and "unset" are handled distinctly from "use the old default," since a naive
+`??` would have silently reinstated a short default TTL for COD). A submitted COD order represents a
+real commitment a courier will act on; auto-cancelling it just because staff haven't confirmed it
+yet would be actively wrong.
+
+**Reviewed separately, found already correct, no change made:** whether COD stock is consumed too
+early (before cash is actually collected). The existing design already consumes stock only at the
+explicit `PAID` action, exactly like InstaPay - `updateFulfillmentStatus` never checks
+`paymentStatus` for COD, so a COD order can reach `PREPARING`/`SHIPPED` while still `UNPAID` (dispatch
+never depends on having already collected cash), and the atomic `ACTIVE -> CONSUMED` reservation
+guard already ensures stock is consumed exactly once regardless of which payment method triggered
+it. Redesigning this to consume stock at `CONFIRMED` instead was considered and rejected: it would
+be a larger, riskier behavior change with unclear coupon-interaction side effects, requested nowhere
+in the actual findings list, and the property the findings actually asked for ("dispatch must not
+depend on having collected cash," "stock consumed exactly once") already held.
+
+### 37. Reservation release now re-checks expiration atomically; sweep counts report only real transitions
+
+**Confirmed present:** `releaseAllExpired` selected candidate reservations, then released all of
+them without re-checking that each one was still actually expired (or still `ACTIVE`) at release
+time - a reservation pinned to `expiresAt: NULL` by a concurrent `CONFIRMED` transition, in the gap
+between selection and release, could still be released anyway, silently undoing the pinning
+guarantee from #25 in Phase 4. Fixed with a new `releaseIfStillExpired(reservationId)` that performs
+its own single-row conditional `UPDATE ... WHERE status = 'ACTIVE' AND expiresAt IS NOT NULL AND
+expiresAt < now()` and returns `null` (no-op) if it loses that race; `releaseAllExpired` and the
+lazy per-stock-item sweep both now call it per-candidate and only count an actual transition,
+instead of assuming every selected candidate was released. This is also what makes the sweep-count
+report accurate ("report only actual transitions in sweep counts") - verified in
+`test/order-concurrency.e2e-spec.ts`'s CONFIRMED-vs-CANCELLED concurrency race, which asserts the
+loser's reservation state is exactly what the winning transition implies, never a mix of both.
+
+### 38. Guarded conditional updates replace plain `update` for order/payment/receipt state transitions
+
+**Confirmed present:** `updateFulfillmentStatus`, `updatePaymentStatus`, and receipt
+accept/reject all previously ended with a plain `tx.<model>.update(...)`, which unconditionally
+overwrites whatever the row's current state is - safe only if nothing else could have changed it
+between this transaction's read and its write, which concurrent staff actions or a concurrent expiry
+sweep can violate. All three now end with a conditional `updateMany({where: {id, <field>:
+<expectedCurrentValue>}, ...})` and check `result.count`, throwing `409 ORDER_STATE_CHANGED` (or,
+for receipts, a specific `INVALID_STATE_TRANSITION`/`NO_PENDING_RECEIPT`) on a lost race rather than
+silently clobbering a concurrent change. Two new, more precise error codes were introduced where the
+old ones were too generic for what was actually happening:
+
+- **`STOCK_RESERVATION_LOST`** (409) - confirming or marking an order paid when its tracked-stock
+  reservation has expired/been released (and was never consumed) is refused with this specific code
+  instead of a misleadingly generic `INVALID_STATE_TRANSITION`, via a new
+  `loadReservationTriage`/`assertStockCommitmentNotLost` pair that distinguishes "genuinely
+  unlimited-stock order" (`hasAny: false`) from "lost commitment" (`hasAny: true, active: [],
+  hasConsumed: false`) from "already consumed" (fine, proceed).
+- **`PAYMENT_NOT_CONFIRMED`** (409) - an unpaid `INSTAPAY_MANUAL` order can no longer reach
+  `PREPARING`; `CASH_ON_DELIVERY` is unaffected (§20/§28) - closing the specific finding "prevent
+  unpaid InstaPay orders from reaching preparation/shipping."
+- Marking an order `PAID` now also atomically accepts its pending InstaPay receipt in the same
+  transaction (`acceptPendingReceiptInTransaction`), refusing (`NO_PENDING_RECEIPT`, 409) if there is
+  none currently `PENDING_REVIEW` - a paid order can no longer retain a stale pending receipt, and a
+  receipt already `ACCEPTED` can no longer be rejected (`rejectReceipt` is now itself a guarded
+  conditional update keyed on `status: PENDING_REVIEW`).
+
+### 39. `?availableOnly=false` was silently read as `true` - a two-layer bug
+
+**Confirmed present, root-caused precisely** (not just patched until the symptom went away): the
+naive JS bug is well known (`Boolean("false") === true`), but the first fix attempt
+(`@Transform(({value}) => ...)`) still failed for `"false"`. An empirical debug script proved why:
+the global `ValidationPipe`'s `enableImplicitConversion: true` runs class-transformer's own implicit
+type coercion (driven by the property's reflected `boolean` type) BEFORE a custom `@Transform`
+callback ever sees `value` - by the time the callback ran, `"false"` had already been coerced to
+`true`, with no way to recover the original string from the already-corrupted value. The working
+fix reads `obj[key]` (the untouched source object class-transformer is converting *from*) inside the
+`@Transform` callback instead of the `value` parameter. Also fixed in the same pass: the filter's
+`stockItemId: null` branch previously treated ANY variant with no linked stock item as available,
+ignoring `isUnlimitedStock` entirely (contradicting §4), and it compared only `onHand` (a stale
+in-code comment claimed "`reserved` is always 0"), not `onHand - reserved`.
+
+### 40. Public variant/cart thumbnails, and shared-stock aggregation in the cart's soft check
+
+Two separate, previously-undetected gaps in already-shipped code:
+
+- **Public variant media was never queried at all.** Three separate Prisma queries in
+  `products.service.ts` each independently built an incomplete variant-`include` shape
+  (`phoneModel`/`caseType`/`stockItem` only) - consolidated into one shared
+  `PRODUCT_VARIANT_RELATIONS_INCLUDE` constant (now including `media`) used everywhere, closing the
+  gap in one place instead of three, and `product-response.mapper.ts` now exposes a `thumbnail`
+  field with the same variant-then-product-primary-image fallback already used by the cart.
+- **`CartService.assertSoftAvailability`'s informative add/update check only ever looked at the ONE
+  cart line being mutated**, not other lines sharing the same `StockItem` (e.g. two different
+  print-on-demand designs on the same blank) - so two individually-"fine" additions could together
+  silently exceed real availability, only to be correctly (but confusingly, post-hoc) caught at
+  checkout. Fixed to sum quantities across all of a cart's lines pointing at the same `StockItem`,
+  matching the aggregation checkout already enforced atomically.
+
+### 41. Refresh-token rotation made atomic
+
+**Confirmed present:** `AuthService.refresh` read the token, checked it, then issued a new pair and
+revoked the old one as separate, non-transactional steps - two concurrent refresh calls using the
+same still-valid token could both pass the initial check and both successfully mint a new session.
+Fixed: the old token's revocation is now the actual concurrency gate, via a conditional `updateMany({
+where: {id, revokedAt: null}, ...})` inside a transaction that only mints the new pair
+(`issueTokenPair`, now transaction-client-aware) after that guard wins; the loser gets `401`.
+Verified in `test/auth.e2e-spec.ts` by racing two refresh calls on the same token and confirming
+exactly one succeeds and its new token pair actually works on a follow-up request.
+
+### 42. Homepage/page content: a small structured CMS, not a page builder
+
+Deliberately modeled as a fixed, typed shape (`HomepageSection` with an enum `type`, bilingual
+title/body, one optional media attachment, one optional link; `Page` with a slug and bilingual
+title/body) rather than a general-purpose block/component page-builder. A page builder would be a
+much larger, more speculative surface (arbitrary nested content blocks, a rendering contract the
+frontend would need to interpret generically) for a requirement that only ever asked for "homepage
+banners/sections" and "informational pages" - the same "don't build ahead of an actual requirement"
+principle already applied to shipping zones in #17. `HomepageSection.mediaAssetId` reuses the
+existing `MediaAsset`/`onDelete: Restrict` pattern rather than inventing a parallel media system, so
+safe-delete-while-referenced (§ media rules) came for free.
+
+### 43. Two-item bundle promotion: design and the deterministic grouping algorithm
+
+Answers the five questions left open in #17/#23, each as an explicit configuration field on
+`BundlePromotion`/`BundleEligibleVariant` rather than a hardcoded rule (see docs/BUSINESS_RULES.md
+§31) - "require complete configuration before activation" (checked in `BundlesService`, enforced
+even when only *some* fields change on an update, not just when `isEnabled` itself flips) is what
+keeps an incompletely-configured bundle from ever going live.
+
+**The grouping algorithm**, needed because the business rules delegate "define deterministic
+grouping when several eligible units exist" to the implementation: eligible units are bucketed by
+phone model (or a single bucket when `requireDifferentPhoneModels` is off); each round, the two
+largest remaining buckets are paired (ties broken by bucket key, then by the earliest-added unit
+within a bucket) - the standard greedy strategy for maximizing the number of cross-category pairs,
+which maximizes total customer savings for a given cart. This is an implementation choice, not a
+business one, and is unit-tested directly (`bundle-pricing.util.spec.ts`, 11 cases) independent of
+any HTTP/DB plumbing. If a specific pairing would ever produce a negative discount (a
+misconfiguration - `fixedTotal` plus surcharges exceeding the two units' normal combined price),
+bundling for that promotion stops entirely for that cart rather than ever charging more than normal
+pricing would.
+
+**Order-item splitting for exact refund snapshots:** because a single cart line's units can end up
+partially bundled (some units in one bundle instance, some in another, some not bundled at all when
+a repeatable bundle doesn't perfectly divide a line's quantity), order creation groups the final
+draft lines by `(original cart line, bundle instance)` pair rather than assuming one `OrderItem` per
+cart line - a line whose quantity was only partially consumed by bundling becomes more than one
+`OrderItem` row, each with its own exact `bundleDiscount` and `bundleInstanceId`. `BundleInstance`
+rows are created before the corresponding `OrderItem` rows (in the same transaction) specifically so
+each instance's real database id is known deterministically by array index, with no ambiguous
+after-the-fact matching of newly-created rows back to instances (a real risk when two draft lines
+can have identical `variantId`/`quantity`/`unitPrice` tuples).
+
+### 44. Manual refund/return administration; a genuine, unrelated bug fixed along the way
+
+Modeled as two independent record types (`Refund` for money, `OrderItemReturn` for physical
+goods) rather than one combined entity, because they are not always 1:1 in reality (a goodwill
+refund needs no physical return; a physical return doesn't automatically justify one) - see
+docs/BUSINESS_RULES.md §32. `Order.paymentStatus`'s `PARTIALLY_REFUNDED`/`REFUNDED` states are now
+reachable ONLY through `RefundsService.recordRefund` (the generic `PATCH .../payment-status`
+endpoint explicitly refuses both as a target) precisely so "close generic status-update paths that
+bypass these financial records" holds by construction, not by convention. The over-refund cap uses a
+`SELECT ... FOR UPDATE` row lock on the order for the transaction's duration rather than a
+conditional `updateMany`, because the actual invariant being protected
+(`sum(refunds.amount) <= order.total`) is a multi-row aggregate check, not a single-field
+compare-and-swap - the established `updateMany`-with-count pattern used everywhere else in this
+codebase doesn't fit an aggregate guard, so row-level locking (still plain PostgreSQL, no new
+infrastructure) was used instead. The idempotency-key check is deliberately evaluated BEFORE the
+payment-status-transition check, not after: a retried request for a refund that has already fully
+processed (and may have already moved the order past `PAID`/`PARTIALLY_REFUNDED` to `REFUNDED`) must
+still replay as a no-op, not fail as if it were a brand-new, now-illegal request.
+
+**A genuine, pre-existing bug found and fixed while building this feature, unrelated to refunds
+themselves:** `StockItemsService.adjust` accepted a staff-supplied `reason` in its DTO, recorded it
+in the audit log, but wrote a hardcoded literal (`'manual_adjustment'`) into the `StockMovement.reason`
+column itself - the actual durable stock-ledger row never retained the real reason a staff member
+gave (e.g. "restocked after inspection - unopened return"), only the audit log did. This directly
+matters for §32's "restocking must be an explicit authorized action with a stock movement and
+reason" - fixed to persist `dto.reason` onto the movement row, verified in
+`test/refunds.e2e-spec.ts`'s restocking test, which asserts the movement's own `reason` field.

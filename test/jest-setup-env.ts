@@ -19,4 +19,3 @@ process.env.NODE_ENV = 'test';
 // This is the clearly-labeled dev/test-only simulation described in
 // docs/DECISIONS.md - never used outside NODE_ENV=test/development.
 process.env.PAYMENT_METHOD ??= 'mock_dev_only';
-process.env.RESERVATION_TTL_MINUTES ??= '15';

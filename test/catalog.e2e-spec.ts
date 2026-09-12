@@ -243,6 +243,39 @@ describe('Catalog (e2e)', () => {
     });
   });
 
+  describe('accessories (no phone model or case type)', () => {
+    it('creates, publishes, and returns a plain accessory variant with no fabricated taxonomy', async () => {
+      const create = await request(app.getHttpServer())
+        .post('/api/v1/admin/products')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ slug: 'cleaning-cloth', nameEn: 'Cleaning Cloth', nameAr: 'قطعة قماش للتنظيف' })
+        .expect(201);
+      await request(app.getHttpServer())
+        .post(`/api/v1/admin/products/${create.body.id}/variants`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ sku: 'SKU-CLOTH', price: 500, isUnlimitedStock: true })
+        .expect(201);
+      await request(app.getHttpServer())
+        .patch(`/api/v1/admin/products/${create.body.id}/status`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ status: 'PUBLISHED' })
+        .expect(200);
+
+      const detail = await request(app.getHttpServer())
+        .get('/api/v1/products/cleaning-cloth')
+        .expect(200);
+      expect(detail.body.variants).toHaveLength(1);
+      expect(detail.body.variants[0].phoneModel).toBeNull();
+      expect(detail.body.variants[0].caseType).toBeNull();
+      expect(detail.body.variants[0].isAvailable).toBe(true);
+
+      const list = await request(app.getHttpServer()).get('/api/v1/products').expect(200);
+      expect(list.body.items.some((item: { slug: string }) => item.slug === 'cleaning-cloth')).toBe(
+        true,
+      );
+    });
+  });
+
   describe('filtering', () => {
     it('filters public products by phone model compatibility', async () => {
       // model16 is intentionally unused here - it exists only so the
@@ -301,6 +334,51 @@ describe('Catalog (e2e)', () => {
       // frontend would actually see, independent of anything a client sends.
       const detail = await request(app.getHttpServer()).get('/api/v1/products/space').expect(200);
       expect(detail.body.variants[0].price).toBe(45000);
+    });
+  });
+
+  describe('availableOnly query parsing', () => {
+    async function publishOutOfStockProduct(slug: string) {
+      const create = await request(app.getHttpServer())
+        .post('/api/v1/admin/products')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ slug, nameEn: 'Out of stock', nameAr: 'غير متوفر' })
+        .expect(201);
+      const stockItem = await prisma.stockItem.create({
+        data: { sku: `OOS-${Date.now()}`, nameEn: 'Blank', onHand: 0 },
+      });
+      await request(app.getHttpServer())
+        .post(`/api/v1/admin/products/${create.body.id}/variants`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ sku: `OOS-VAR-${Date.now()}`, price: 1000, stockItemId: stockItem.id })
+        .expect(201);
+      await request(app.getHttpServer())
+        .patch(`/api/v1/admin/products/${create.body.id}/status`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ status: 'PUBLISHED' })
+        .expect(200);
+    }
+
+    it('treats ?availableOnly=false as false, not true', async () => {
+      await publishOutOfStockProduct('oos-false-check');
+
+      // `?availableOnly=false` must still include the out-of-stock
+      // product - `@Type(() => Boolean)` used to coerce the STRING
+      // "false" to `true` (Boolean("false") is true in JS), silently
+      // filtering it out even though the caller asked for "false".
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/products?availableOnly=false')
+        .expect(200);
+      expect(res.body.items.some((p: { slug: string }) => p.slug === 'oos-false-check')).toBe(true);
+    });
+
+    it('treats ?availableOnly=true as true, excluding an out-of-stock product', async () => {
+      await publishOutOfStockProduct('oos-true-check');
+
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/products?availableOnly=true')
+        .expect(200);
+      expect(res.body.items.some((p: { slug: string }) => p.slug === 'oos-true-check')).toBe(false);
     });
   });
 });

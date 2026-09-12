@@ -14,7 +14,18 @@ export interface ReserveInput {
   quantity: number;
   cartId?: string;
   orderId?: string;
-  ttlMinutes?: number;
+  // undefined -> use DEFAULT_RESERVATION_TTL_MINUTES; null -> never expires
+  // (e.g. a CASH_ON_DELIVERY order with no configured COD_EXPIRY_MINUTES -
+  // see OrdersService.createOrder). Explicitly distinct from `undefined` -
+  // `??` would treat both the same and silently reinstate a default TTL
+  // for a caller that deliberately asked for "no expiry".
+  ttlMinutes?: number | null;
+}
+
+function resolveExpiresAt(ttlMinutes: number | null | undefined): Date | null {
+  if (ttlMinutes === null) return null;
+  const minutes = ttlMinutes ?? DEFAULT_RESERVATION_TTL_MINUTES;
+  return new Date(Date.now() + minutes * 60_000);
 }
 
 // Raw-query RETURNING clause for stock_reservations, aliased back to the
@@ -46,7 +57,7 @@ export class ReservationsService {
   async reserve(input: ReserveInput): Promise<StockReservation> {
     await this.releaseExpiredForStockItem(input.stockItemId);
 
-    const ttlMinutes = input.ttlMinutes ?? DEFAULT_RESERVATION_TTL_MINUTES;
+    const expiresAt = resolveExpiresAt(input.ttlMinutes);
 
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
@@ -66,7 +77,7 @@ export class ReservationsService {
           quantity: input.quantity,
           cartId: input.cartId,
           orderId: input.orderId,
-          expiresAt: new Date(Date.now() + ttlMinutes * 60_000),
+          expiresAt,
         },
       });
     });
@@ -85,7 +96,7 @@ export class ReservationsService {
    */
   async reserveMany(
     lines: { stockItemId: string; quantity: number }[],
-    options: { cartId?: string; orderId?: string; ttlMinutes?: number } = {},
+    options: { cartId?: string; orderId?: string; ttlMinutes?: number | null } = {},
   ): Promise<StockReservation[]> {
     const aggregated = this.aggregateLines(lines);
     await this.sweepExpiredForStockItems([...aggregated.keys()]);
@@ -108,7 +119,7 @@ export class ReservationsService {
   async reserveManyInTransaction(
     tx: Prisma.TransactionClient,
     lines: { stockItemId: string; quantity: number }[],
-    options: { cartId?: string; orderId?: string; ttlMinutes?: number } = {},
+    options: { cartId?: string; orderId?: string; ttlMinutes?: number | null } = {},
   ): Promise<StockReservation[]> {
     return this.reserveAggregatedInTransaction(tx, this.aggregateLines(lines), options);
   }
@@ -131,10 +142,9 @@ export class ReservationsService {
   private async reserveAggregatedInTransaction(
     tx: Prisma.TransactionClient,
     aggregated: Map<string, number>,
-    options: { cartId?: string; orderId?: string; ttlMinutes?: number },
+    options: { cartId?: string; orderId?: string; ttlMinutes?: number | null },
   ): Promise<StockReservation[]> {
-    const ttlMinutes = options.ttlMinutes ?? DEFAULT_RESERVATION_TTL_MINUTES;
-    const expiresAt = new Date(Date.now() + ttlMinutes * 60_000);
+    const expiresAt = resolveExpiresAt(options.ttlMinutes);
 
     const created: StockReservation[] = [];
     for (const [stockItemId, quantity] of aggregated) {
@@ -409,19 +419,58 @@ export class ReservationsService {
   }
 
   /**
+   * Releases a reservation for expiry ONLY IF it is still actually expired
+   * at the moment of the write, not just at the moment it was selected -
+   * `release()`'s own guard (`status = 'ACTIVE'`) is not enough here on its
+   * own: between a sweep's SELECT and this UPDATE, the reservation could
+   * have been pinned (`expiresAt` set to NULL on order confirmation) by a
+   * concurrent request - pinning never changes `status`, so a plain
+   * `release()` call would still match and incorrectly expire a
+   * now-permanent hold. Baking the expiry recheck into the same
+   * conditional UPDATE closes that race: if the row no longer matches
+   * (pinned, already resolved, or simply not expired anymore), this
+   * affects zero rows and returns null instead of forcing a release.
+   */
+  private async releaseIfStillExpired(reservationId: string): Promise<StockReservation | null> {
+    return this.prisma.$transaction(async (tx) => {
+      const rows = await tx.$queryRaw<StockReservation[]>(Prisma.sql`
+        UPDATE stock_reservations
+        SET status = 'EXPIRED', "releasedAt" = now(), "updatedAt" = now()
+        WHERE id = ${reservationId}
+          AND status = 'ACTIVE'
+          AND "expiresAt" IS NOT NULL
+          AND "expiresAt" < now()
+        ${RESERVATION_RETURNING};
+      `);
+      if (rows.length === 0) {
+        return null;
+      }
+      const reservation = rows[0];
+      await tx.$executeRaw(Prisma.sql`
+        UPDATE stock_items
+        SET reserved = reserved - ${reservation.quantity}, "updatedAt" = now()
+        WHERE id = ${reservation.stockItemId} AND reserved >= ${reservation.quantity};
+      `);
+      return reservation;
+    });
+  }
+
+  /**
    * Releases every expired ACTIVE reservation, bounded to `limit` per
    * call so a scheduled sweep (ReservationExpiryScheduler) never does
-   * unbounded work in one tick. Returns the released reservations (not
-   * just a count) so a caller can react per-order (see OrdersService,
-   * which cancels any order whose reservations just expired).
+   * unbounded work in one tick. Returns only reservations *actually*
+   * transitioned by this call (see `releaseIfStillExpired`) - a row that
+   * lost the race (pinned, or resolved some other way between selection
+   * and release) is silently skipped rather than counted, so sweep counts
+   * always reflect real transitions.
    *
    * `expiresAt: null` (see pinActiveForOrderInTransaction) means "does not
-   * expire" - such a reservation can never match this query, by
+   * expire" - such a reservation can never match the selection query, by
    * construction, regardless of how much wall-clock time passes. There is
    * no separate "is this order confirmed?" branch needed here.
    */
   async releaseAllExpired(limit = 200): Promise<StockReservation[]> {
-    const expired = await this.prisma.stockReservation.findMany({
+    const candidates = await this.prisma.stockReservation.findMany({
       where: {
         status: ReservationStatus.ACTIVE,
         expiresAt: { not: null, lt: new Date() },
@@ -430,8 +479,9 @@ export class ReservationsService {
       take: limit,
     });
     const released: StockReservation[] = [];
-    for (const { id } of expired) {
-      released.push(await this.release(id, ReservationStatus.EXPIRED));
+    for (const { id } of candidates) {
+      const reservation = await this.releaseIfStillExpired(id);
+      if (reservation) released.push(reservation);
     }
     if (released.length > 0) {
       this.logger.log(`Released ${released.length} expired stock reservation(s)`);
@@ -440,7 +490,7 @@ export class ReservationsService {
   }
 
   private async releaseExpiredForStockItem(stockItemId: string): Promise<void> {
-    const expired = await this.prisma.stockReservation.findMany({
+    const candidates = await this.prisma.stockReservation.findMany({
       where: {
         stockItemId,
         status: ReservationStatus.ACTIVE,
@@ -448,8 +498,8 @@ export class ReservationsService {
       },
       select: { id: true },
     });
-    for (const { id } of expired) {
-      await this.release(id, ReservationStatus.EXPIRED);
+    for (const { id } of candidates) {
+      await this.releaseIfStillExpired(id);
     }
   }
 

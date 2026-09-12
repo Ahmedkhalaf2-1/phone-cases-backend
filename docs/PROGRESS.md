@@ -1,12 +1,117 @@
 # Progress
 
-## Status: Phase 1, Phase 2, and Phase 3 (Orders) fully implemented and tested. Phase 4 underway.
+## Status: Phases 1-3 complete. Phase 4 (manual payment) complete. Phase 5 (correctness hardening, CMS, bundles, refunds) complete.
 
-Phase 2's two previously-deferred items (shipping, atomic cart variant replacement) are now done -
-the only Phase 2/3 item still deliberately not built is the bundle promotion (see
-docs/DECISIONS.md #23). The payment-provider question is now resolved for **manual** payment (cash
-on delivery + InstaPay bank transfer with an uploaded, admin-verified screenshot) - a real online
-payment gateway remains explicitly out of scope, not a silent gap (docs/DECISIONS.md #2, #22).
+Phase 2's two previously-deferred items (shipping, atomic cart variant replacement) are done. The
+payment-provider question is resolved for **manual** payment (cash on delivery + InstaPay bank
+transfer with an uploaded, admin-verified screenshot) - a real online payment gateway remains
+explicitly out of scope, not a silent gap (docs/DECISIONS.md #2, #22). The bundle promotion,
+previously deferred pending business decisions (docs/DECISIONS.md #17/#23), is now implemented as
+Phase 5 work (docs/DECISIONS.md #43) - see the Phase 5 section below.
+
+## Phase 5 — checkout/order concurrency correctness, storefront fixes, CMS, bundles, refunds
+
+A focused correctness pass against a specific list of suspected findings, followed by three
+previously-deferred features. Full detail in docs/DECISIONS.md #34-44 and docs/BUSINESS_RULES.md
+§27-32; this section summarizes what changed and how it was verified.
+
+**Checkout/order concurrency correctness** (all confirmed as real, pre-existing gaps and fixed):
+
+- Idempotency now checks cart ownership and request-payload hash on both the initial lookup and the
+  concurrent-insert (`P2002`) fallback path - a key reused by a different cart or a different
+  payload is rejected, never silently handed someone else's order.
+- Order creation atomically claims its cart (`UPDATE ... WHERE status = 'ACTIVE'`) as the actual
+  concurrency gate, then re-reads and revalidates cart/price/stock/shipping/coupon state fresh
+  INSIDE the transaction - never from a pre-transaction snapshot.
+- A new `Order.reservationDeadline` field (migration `20260912104720_order_level_expiry_deadline`)
+  drives auto-cancellation independent of any one `StockReservation` - so an order made entirely of
+  `isUnlimitedStock` items is still correctly auto-cancelled, and `CASH_ON_DELIVERY` orders get NO
+  default deadline (a submitted COD order is real and must not silently expire) unless an operator
+  opts in via the new `COD_EXPIRY_MINUTES`. `RESERVATION_TTL_MINUTES` was removed (superseded).
+- Reservation release now re-checks expiration atomically at release time
+  (`releaseIfStillExpired`), so a reservation pinned by a concurrent `CONFIRMED` transition can never
+  still be released; sweep counts now report only genuine transitions.
+- Order/payment status transitions and receipt accept/reject are all now guarded conditional updates
+  (`updateMany` + checked row count), returning `409 ORDER_STATE_CHANGED` on a lost race instead of
+  silently overwriting a concurrent change. Two new, more precise error codes:
+  `STOCK_RESERVATION_LOST` (confirming/paying an order whose tracked stock commitment disappeared)
+  and `PAYMENT_NOT_CONFIRMED` (an unpaid InstaPay order can no longer reach `PREPARING`). Marking an
+  order `PAID` now also atomically accepts its pending InstaPay receipt in the same transaction.
+- Refresh-token rotation is now atomic (conditional `UPDATE ... WHERE revokedAt IS NULL` as the
+  concurrency gate) - two concurrent refreshes of the same token can no longer both succeed.
+- **Storefront fixes**: `?availableOnly=false` was silently read as `true` (a two-layer bug - naive
+  JS boolean coercion, compounded by the global `ValidationPipe`'s implicit conversion running
+  before any custom `@Transform` saw the original string) - fixed and covered by
+  `test/catalog.e2e-spec.ts`. Public variant media was never queried at all (three separate,
+  independently-incomplete Prisma includes) - consolidated and now exposed as a `thumbnail` field
+  with product-image fallback, matching the same fix applied to cart-line thumbnails. Cart
+  add/update availability checks now aggregate quantities across cart lines sharing a `StockItem`,
+  matching what checkout already enforced atomically.
+- **Reviewed and confirmed already correct, no change made**: COD stock-consumption timing (stock
+  is already consumed only at the explicit `PAID` action, for both payment methods) and the
+  order-creation price-reconfirmation contract (`expectedTotal`/`PRICE_CHANGED`, already sufficient
+  once revalidation moved inside the transaction - no separate cart-content fingerprint was added;
+  see docs/DECISIONS.md #34 for why).
+- **Tests**: `test/order-concurrency.e2e-spec.ts` (new, 10 tests - idempotency/cart-ownership races,
+  concurrent CONFIRMED-vs-CANCELLED races, COD/InstaPay deadline behavior, receipt
+  accept/reject-then-pay consistency, lost-reservation manual-review requirement), one new test in
+  `test/auth.e2e-spec.ts` (concurrent refresh race), `test/orders.e2e-spec.ts` updated for the new
+  deadline/error-code behavior, new coverage in `test/cart.e2e-spec.ts` (shared-stock aggregation)
+  and `test/catalog.e2e-spec.ts` (`availableOnly` parsing, accessory variants with no fabricated
+  taxonomy).
+
+**Homepage content and informational pages** (small, structured CMS - docs/BUSINESS_RULES.md §30):
+
+- `HomepageSection` (typed `BANNER`/`PROMO_STRIP`, bilingual, optional media/link, `displayOrder`,
+  `isEnabled` defaulting to `false`) and `Page` (unique slug, bilingual, `DRAFT`/`PUBLISHED`) - full
+  admin CRUD plus public published/enabled-only read endpoints. Media deletion safety came for free
+  by reusing the existing `MediaAsset`/`onDelete: Restrict` pattern. Seed data is explicitly marked
+  `[DEMO CONTENT]`/`(demo)`, never presented as real policy. Migration
+  `20260912114025_homepage_and_pages_cms`. Tests: `test/content.e2e-spec.ts` (10 tests).
+
+**Two-item bundle promotions** (docs/BUSINESS_RULES.md §31, docs/DECISIONS.md #43):
+
+- `BundlePromotion`/`BundleEligibleVariant`/`BundleInstance` - every one of the five business
+  decisions previously blocking this (docs/DECISIONS.md #17/#23) is now explicit configuration:
+  eligible variants, fixed total + per-variant surcharges, repeatability, coupon-stacking policy,
+  validity dates. Refuses to enable a bundle until it is completely configured (real
+  fixed total/currency, ≥2 eligible variants spanning ≥2 phone models when required). A pure,
+  independently unit-tested `computeBundleInstances` function (11 tests,
+  `bundle-pricing.util.spec.ts`) deterministically groups eligible units (largest-bucket-first
+  pairing across phone models) and allocates each instance's discount exactly across its two units -
+  the identical function is called from the cart view, the checkout quote, and order creation, so
+  what a customer sees is exactly what they are charged. A bundle can never increase the payable
+  total; misconfigured pairings are simply skipped. Order creation persists one `BundleInstance` row
+  per applied pairing and splits a cart line across more than one `OrderItem` when only part of its
+  quantity was bundled, so refunds have an exact record to work from. Migration
+  `20260912115034_bundle_promotions`. Tests: `test/bundles.e2e-spec.ts` (8 tests, covering
+  activation-readiness validation, cart/order pricing, coupon-stacking policy, and the
+  never-increase-total guarantee).
+
+**Minimal manual refund/return administration** (docs/BUSINESS_RULES.md §32, docs/DECISIONS.md #44):
+
+- `Refund` (amount, currency, reason, staff actor, idempotency key) and `OrderItemReturn` (returned
+  quantity, reason, staff actor) - two independent records, since a refund and a physical return are
+  not always 1:1. `POST /admin/orders/:id/refunds` is now the ONLY path that can move
+  `Order.paymentStatus` to `PARTIALLY_REFUNDED`/`REFUNDED` - the generic payment-status endpoint
+  explicitly refuses both as a target (`400 USE_REFUNDS_ENDPOINT`), so the over-refund cap
+  (`sum(refunds) <= order.total`, enforced under a `SELECT ... FOR UPDATE` row lock on the order)
+  can never be bypassed. Restocking a returned item is a separate, explicit call to the pre-existing
+  stock-adjustment endpoint - recording a return never touches `onHand` itself. **A genuine,
+  unrelated bug found and fixed along the way**: `StockItemsService.adjust` was writing a hardcoded
+  `'manual_adjustment'` literal into the `StockMovement.reason` column instead of the staff-supplied
+  reason, which only ever reached the audit log - now fixed to persist the real reason onto the
+  ledger row itself. Migration `20260912121743_manual_refunds_and_returns`. Tests:
+  `test/refunds.e2e-spec.ts` (11 tests).
+
+**Verification performed for this phase**: `npx tsc --noEmit` clean; `npm run lint` clean (zero
+errors after two small, targeted fixes - one real `no-unsafe-assignment` in the new order-item
+bundle-grouping code, one ESLint config gap for `no-unsafe-call` in e2e specs, consistent with the
+existing supertest-body exemption already documented there); `npx nest build` clean; the full e2e
+suite (`npx jest --config ./test/jest-e2e.json --runInBand`) - **14 suites, 160 tests, all passing**
+- run once at the end given the number of cross-module changes, per the instruction not to repeat
+the whole suite after every edit; the full unit suite (`npx jest --config ./package.json`) - 9
+suites, 58 tests, all passing.
 
 ## Phase 4 — InstaPay manual payment and receipt uploads
 
@@ -231,12 +336,15 @@ requests/responses if needed.
 ## Known gaps / explicitly out of scope
 
 - Real payment provider integration — see Phase 3 section and docs/DECISIONS.md #22.
-- The bundle promotion — see docs/DECISIONS.md #23.
 - S3/production media storage — stubbed to fail loudly (`503`), not implemented (Phase 4).
 - No "last remaining OWNER_ADMIN can't be deactivated by another admin" safeguard — only
   self-lockout is prevented today.
 - Search is plain PostgreSQL `ILIKE`, not a dedicated search index — adequate at MVP scale per the
   brief's own guidance to start with Postgres and only add more if measured need justifies it.
+- No customer-facing refund/return request flow — Phase 5's refund/return administration (§ above)
+  is staff-only, initiated entirely from the admin side.
+- Automatic receipt verification (OCR, amount/reference matching) — every InstaPay screenshot is
+  still reviewed by a human admin; see docs/BUSINESS_RULES.md §25.
 
 ## Environment/tooling notes worth knowing before continuing this project
 
@@ -269,17 +377,18 @@ requests/responses if needed.
    sweep redundantly on every instance. Recommended: one instance until a distributed-lock or
    external-cron approach is built. **Documented; the distributed-scheduling work itself is a
    separate, not-yet-started item.**
-4. **Bundle promotion** - still blocked on the five business decisions in docs/DECISIONS.md #23.
-   **Still open.**
+4. **Bundle promotion** - the five business decisions in docs/DECISIONS.md #23 are now answered as
+   explicit configuration and the feature is implemented (Phase 5, docs/DECISIONS.md #43). **Done.**
 5. **Payment provider** - resolved for manual payment (cash on delivery + InstaPay manual with an
    admin-verified screenshot, docs/DECISIONS.md #2/#29-33). A real online payment gateway remains
    out of scope, not a silent gap. **Manual methods done; gateway integration still open.**
 
 ## Next milestone
 
-With the manual-payment flow, its security review, and deployment documentation in place, remaining
-Phase 4 work is genuinely blocked, either by an infrastructure dependency this environment can't
-provide (S3 credentials to test a real driver against) or by business decisions not yet made (the
-bundle promotion, a real payment gateway). The next concrete, unblocked engineering item is the
-distributed-scheduling work implied by §3 above, if/when this deployment needs more than one
-instance.
+With Phase 5's correctness hardening, CMS, bundle promotions, and manual refund/return
+administration now complete (see the Phase 5 section above), the remaining open items are either
+blocked by an infrastructure dependency this environment can't provide (S3 credentials to test a
+real driver against) or by a business decision not yet made (a real payment gateway - the two
+manual methods are complete and are the confirmed, final scope unless that decision changes). The
+next concrete, unblocked engineering item is the distributed-scheduling work implied by Phase 4 §3
+above, if/when this deployment needs more than one instance.

@@ -312,3 +312,84 @@ never under the publicly-served `MEDIA_LOCAL_DIR` tree - see
 `Order.latePaymentFlaggedAt`/`latePaymentNote`: set only by the explicit, audited
 `flagLatePayment` admin action, only on an already-`CANCELLED` order - a manual-reconciliation note
 that deliberately never restores `fulfillmentStatus`/`paymentStatus` or re-reserves stock.
+
+## 12. Order-level expiry deadline (Phase 5)
+
+`Order.reservationDeadline DateTime?` is the field that actually drives auto-cancellation
+(`OrdersService.cancelExpiredOrders`), set once at creation from the same TTL used for stock
+reservations but tracked independently of any specific `StockReservation.expiresAt` - see
+`docs/DECISIONS.md` #35 for why these are deliberately two different concepts (an order made
+entirely of `isUnlimitedStock` items has no `StockReservation` rows at all, and therefore needs its
+own deadline to be cancellable). `NULL` means "never auto-expire" - the default for
+`CASH_ON_DELIVERY` unless an operator sets `COD_EXPIRY_MINUTES`; `INSTAPAY_MANUAL` always gets one
+from `INSTAPAY_REVIEW_DEADLINE_MINUTES`. Indexed together with `fulfillmentStatus`/`paymentStatus`
+(`@@index([fulfillmentStatus, paymentStatus, reservationDeadline])`) since the sweep query filters on
+all three.
+
+## 13. Content: homepage sections and pages (Phase 5)
+
+A small, structured CMS - see `docs/DECISIONS.md` #42 for why this is not a general page builder.
+
+- **`HomepageSection`**: `type` (`HomepageSectionType`: `BANNER` | `PROMO_STRIP`), optional bilingual
+  `titleEn`/`titleAr`/`bodyEn`/`bodyAr`, an optional `mediaAssetId` (FK to `MediaAsset`,
+  `onDelete: Restrict` - the same safe-delete-while-referenced pattern as `ProductMedia`/
+  `VariantMedia`), an optional `linkUrl` (a plain string, not validated against real routes - a
+  content field, not a router), `displayOrder`, and `isEnabled` (`@default(false)`). Only
+  `isEnabled: true` sections are ever returned by the public `GET /homepage-sections`.
+- **`Page`**: a unique `slug`, required bilingual `titleEn`/`titleAr`/`bodyEn`/`bodyAr`, and
+  `status` (`PageStatus`: `DRAFT` | `PUBLISHED`). `publishedAt` is set the first time a page
+  transitions to `PUBLISHED` and is not cleared on unpublish, preserving that history. Public reads
+  (`GET /pages`, `GET /pages/:slug`) only ever return `PUBLISHED` pages.
+
+## 14. Two-item bundle promotions (Phase 5)
+
+See `docs/BUSINESS_RULES.md` §31 and `docs/DECISIONS.md` #43 for the full design and the
+deterministic grouping algorithm.
+
+```
+BundlePromotion (1) ───< BundleEligibleVariant >─── (1) ProductVariant
+BundlePromotion (1) ───< BundleInstance >─── (1) Order
+BundleInstance   (1) ───< OrderItem
+```
+
+- **`BundlePromotion`**: `name` (internal label), nullable `fixedTotal`/`currency` (both required
+  before `isEnabled` can be `true` - see `BundlesService.assertReadyToEnable`),
+  `requireDifferentPhoneModels` (`@default(true)`), `isRepeatable` (`@default(true)`),
+  `allowCouponStacking` (`@default(false)`), `isEnabled` (`@default(false)`), `startsAt`/`expiresAt`.
+- **`BundleEligibleVariant`**: join row between a `BundlePromotion` and a `ProductVariant`
+  (`onDelete: Cascade` on both sides - removing either the promotion or the variant removes just the
+  eligibility row, not the other entity), with its own `surchargeAmount` (`@default(0)`) added on
+  top of `fixedTotal` when that specific variant fills a bundle slot.
+- **`BundleInstance`**: one row per bundle grouping actually applied to a real order - a pure,
+  immutable snapshot (`fixedTotalApplied`, `normalSubtotal`, `discountAmount`) taken at the moment it
+  was applied, never re-read from the live `BundlePromotion` afterward (which might be edited or
+  disabled later). `bundlePromotionId` is `onDelete: Restrict`, so a promotion that has ever produced
+  a real order can never be deleted outright - only disabled.
+- **`OrderItem.bundleInstanceId`** (nullable, `onDelete: SetNull`) + **`bundleDiscount`**
+  (`@default(0)`): a line's share of its bundle instance's discount, allocated via the same
+  proportional-with-remainder allocator used for coupon discounts. A single cart line whose quantity
+  was only partially consumed by bundling becomes more than one `OrderItem` row - one per distinct
+  `(cart line, bundle instance)` pairing plus, if any quantity was left over, one more with
+  `bundleInstanceId: null` for the non-bundled remainder.
+- **`Order.bundleDiscountTotal`** (`@default(0)`): the sum of all of an order's bundle-instance
+  discounts, kept as a separate column from the pre-existing coupon-only `discountTotal` so each
+  discount source stays independently auditable/refundable. `Order.total` nets out both.
+
+## 15. Manual refunds and returns (Phase 5)
+
+Staff-only financial/inventory records - see `docs/BUSINESS_RULES.md` §32 and `docs/DECISIONS.md`
+#44. Deliberately two independent models, not one combined entity, since a refund and a physical
+return are not always 1:1 in practice.
+
+- **`Refund`**: `orderId` (`onDelete: Restrict`), `amount`/`currency`, a free-text `reason`,
+  `staffUserId` (`onDelete: Restrict`), and a unique, client-supplied `idempotencyKey`. The running
+  sum of an order's `Refund` rows can never exceed `Order.total` (enforced transactionally under a
+  row lock on the order - see `RefundsService.recordRefund`); `Order.paymentStatus`'s
+  `PARTIALLY_REFUNDED`/`REFUNDED` values are always derived from this sum, never written directly by
+  any other code path.
+- **`OrderItemReturn`**: `orderItemId` (`onDelete: Restrict`), a returned `quantity` capped so the
+  running total per line can never exceed that line's purchased `quantity`, a free-text `reason`, and
+  `staffUserId`. Deliberately has no relationship to `StockItem.onHand` at all - restocking a
+  returned unit (or not, if it's damaged) is a separate, explicit action through the pre-existing
+  `StockItemsService.adjust` (its own `delta` + `reason`, written as a `StockMovement` row), so a
+  returned unit is never silently treated as automatically-sellable-again stock.

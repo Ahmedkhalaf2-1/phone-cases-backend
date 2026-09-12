@@ -614,9 +614,18 @@ describe('Orders (e2e)', () => {
         where: { trackingToken: created.body.trackingToken },
       });
 
+      // This order is CASH_ON_DELIVERY, which gets no reservationDeadline
+      // by default (see docs/BUSINESS_RULES.md - COD must not inherit the
+      // short abandoned-checkout timeout) - simulate an operator having
+      // configured COD_EXPIRY_MINUTES by setting the order-level deadline
+      // directly, alongside the stock reservation's own expiresAt.
       await prisma.stockReservation.updateMany({
         where: { orderId: order.id },
         data: { expiresAt: new Date(Date.now() - 60_000) },
+      });
+      await prisma.order.update({
+        where: { id: order.id },
+        data: { reservationDeadline: new Date(Date.now() - 60_000) },
       });
 
       const expiryService = app.get(OrderExpiryService);
@@ -698,12 +707,18 @@ describe('Orders (e2e)', () => {
         where: { trackingToken: created.body.trackingToken },
       });
 
+      // Expire the reservation without cancelling the order itself (no
+      // order-level reservationDeadline set) - this specifically exercises
+      // "the reservation is gone but the order is still PENDING/UNPAID",
+      // i.e. a lost stock commitment distinct from cancellation.
       await prisma.stockReservation.updateMany({
         where: { orderId: order.id },
         data: { expiresAt: new Date(Date.now() - 60_000) },
       });
       const expiryService = app.get(OrderExpiryService);
-      await expiryService.sweepAndCancel();
+      const sweep = await expiryService.sweepAndCancel();
+      expect(sweep.releasedReservations).toBe(1);
+      expect(sweep.cancelledOrders).toBe(0);
 
       const { accessToken } = await createStaffAndLogin(app, StaffRole.OWNER_ADMIN);
       const res = await request(app.getHttpServer())
@@ -711,7 +726,10 @@ describe('Orders (e2e)', () => {
         .set('Authorization', `Bearer ${accessToken}`)
         .send({ status: 'PAID' })
         .expect(409);
-      expect(res.body.code).toBe('INVALID_STATE_TRANSITION');
+      // More specific than the old generic INVALID_STATE_TRANSITION: this
+      // order had tracked stock, and its reservation is gone (not just
+      // "wrong status") - see docs/BUSINESS_RULES.md.
+      expect(res.body.code).toBe('STOCK_RESERVATION_LOST');
 
       const updatedOrder = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
       expect(updatedOrder.paymentStatus).toBe('UNPAID');

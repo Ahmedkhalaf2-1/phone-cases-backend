@@ -23,10 +23,29 @@ const ALLOWED_TRANSITIONS: Record<ProductStatus, ProductStatus[]> = {
   [ProductStatus.ARCHIVED]: [ProductStatus.DRAFT],
 };
 
+// Only the one image that will actually be shown (primary first, then
+// lowest displayOrder), fetched directly at the DB level via `take: 1` -
+// never the full media list just to pick one in application code.
+const VARIANT_THUMBNAIL_INCLUDE = {
+  include: { mediaAsset: true },
+  orderBy: [{ isPrimary: 'desc' as const }, { displayOrder: 'asc' as const }],
+  take: 1,
+};
+
+// Shared by every query that returns variants to a client (admin or
+// public) - a variant with no image of its own still needs its parent
+// product's own media loaded (see product-response.mapper.ts's
+// product-image fallback), and every call site must agree on this shape
+// to keep AdminProductWithRelations one consistent type.
+const PRODUCT_VARIANT_RELATIONS_INCLUDE = {
+  phoneModel: { include: { brand: true } },
+  caseType: true,
+  stockItem: true,
+  media: VARIANT_THUMBNAIL_INCLUDE,
+} satisfies Prisma.ProductVariantInclude;
+
 const ADMIN_PRODUCT_INCLUDE = {
-  variants: {
-    include: { phoneModel: { include: { brand: true } }, caseType: true, stockItem: true },
-  },
+  variants: { include: PRODUCT_VARIANT_RELATIONS_INCLUDE },
   collections: { include: { collection: true } },
   media: { include: { mediaAsset: true }, orderBy: { displayOrder: 'asc' as const } },
 } satisfies Prisma.ProductInclude;
@@ -183,7 +202,7 @@ export class ProductsService {
   async findPublicList(
     query: PublicProductQueryDto,
   ): Promise<PaginatedResult<AdminProductWithRelations>> {
-    const variantWhere = this.buildPublicVariantFilter(query);
+    const variantWhere = await this.buildPublicVariantFilter(query);
     const where: Prisma.ProductWhereInput = {
       status: ProductStatus.PUBLISHED,
       variants: { some: variantWhere },
@@ -230,10 +249,7 @@ export class ProductsService {
     const products = await this.prisma.product.findMany({
       where: { id: { in: pageIds } },
       include: {
-        variants: {
-          where: variantWhere,
-          include: { phoneModel: { include: { brand: true } }, caseType: true, stockItem: true },
-        },
+        variants: { where: variantWhere, include: PRODUCT_VARIANT_RELATIONS_INCLUDE },
         collections: { include: { collection: true } },
         media: { include: { mediaAsset: true }, orderBy: { displayOrder: 'asc' } },
       },
@@ -251,10 +267,7 @@ export class ProductsService {
     const product = await this.prisma.product.findUnique({
       where: { slug },
       include: {
-        variants: {
-          where: { isActive: true },
-          include: { phoneModel: { include: { brand: true } }, caseType: true, stockItem: true },
-        },
+        variants: { where: { isActive: true }, include: PRODUCT_VARIANT_RELATIONS_INCLUDE },
         collections: { include: { collection: true } },
         media: { include: { mediaAsset: true }, orderBy: { displayOrder: 'asc' } },
       },
@@ -314,8 +327,10 @@ export class ProductsService {
     });
   }
 
-  private buildPublicVariantFilter(query: PublicProductQueryDto): Prisma.ProductVariantWhereInput {
-    return {
+  private async buildPublicVariantFilter(
+    query: PublicProductQueryDto,
+  ): Promise<Prisma.ProductVariantWhereInput> {
+    const base: Prisma.ProductVariantWhereInput = {
       isActive: true,
       ...(query.phoneModel ? { phoneModel: { slug: query.phoneModel } } : {}),
       ...(query.caseType ? { caseType: { slug: query.caseType } } : {}),
@@ -327,12 +342,30 @@ export class ProductsService {
             },
           }
         : {}),
-      // Reservation bookkeeping (onHand vs reserved) is Phase 2 scope - see
-      // docs/DECISIONS.md. Until reservations exist, reserved is always 0,
-      // so onHand > 0 is an accurate availability check for a tracked item.
-      ...(query.availableOnly
-        ? { OR: [{ stockItemId: null }, { stockItem: { onHand: { gt: 0 } } }] }
-        : {}),
+    };
+    if (!query.availableOnly) {
+      return base;
+    }
+
+    // Prisma's query API cannot compare two columns of the same row
+    // (onHand vs reserved) directly, so a small raw query finds the stock
+    // items that are genuinely available right now - the exact same
+    // formula used everywhere else availability is decided (see
+    // CartPricingService, product-response.mapper.ts). A variant with no
+    // linked StockItem is only available if explicitly opted into
+    // unlimited stock - never assumed just because stockItemId is null,
+    // see docs/BUSINESS_RULES.md.
+    const availableStockItems = await this.prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
+      SELECT id FROM stock_items WHERE "onHand" - reserved > 0;
+    `);
+    const availableStockItemIds = availableStockItems.map((row) => row.id);
+
+    return {
+      ...base,
+      OR: [
+        { stockItemId: null, isUnlimitedStock: true },
+        { stockItemId: { in: availableStockItemIds } },
+      ],
     };
   }
 

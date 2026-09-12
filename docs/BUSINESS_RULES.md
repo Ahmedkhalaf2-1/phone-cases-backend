@@ -401,14 +401,16 @@ unauthenticated client request, a redirect, or the act of uploading a screenshot
 
 ## 23. Not yet implemented (do not treat as working)
 
-- **The "choose two eligible cases for a fixed total" bundle promotion**, and any coupon/bundle
-  stacking policy - only a single, optional coupon per cart/order exists. Deliberately deferred; see
-  docs/DECISIONS.md for the exact list of business decisions needed before it can be built.
-- **A real online payment gateway** (card processing, webhooks, automatic capture, refund
-  processing) - no provider is selected, and the two confirmed methods (§22) are both manual/
-  offline by design. See docs/DECISIONS.md.
+- **A real online payment gateway** (card processing, webhooks, automatic capture, automated refund
+  processing/money movement) - no provider is selected, and the two confirmed methods (§22) are both
+  manual/offline by design. See docs/DECISIONS.md. (The two-item bundle promotion, §31, and manual
+  refund/return administration, §32, were both deferred at the time this note was first written but
+  are now implemented.)
 - **Automatic receipt verification** (OCR, amount/reference matching) - every InstaPay screenshot is
   reviewed by a human admin; see §25.
+- **A customer-facing refund/return request flow** - §32's refund/return administration is
+  staff-only, initiated entirely from the admin side; there is no public endpoint for a customer to
+  request or track a refund.
 
 ## 24. Sensitive credentials never appear in server logs
 
@@ -491,3 +493,182 @@ to survive a checkout retry - and are deleted by a scheduled sweep
 **An attached receipt's `expiresAt` is cleared the moment it is attached**, so the cleanup query
 (`orderId IS NULL AND expiresAt < now()`) can never match an attached receipt, by construction -
 there is no code path that deletes a receipt still referenced by an order.
+
+## 27. Checkout concurrency correctness (Phase 5)
+
+A focused correctness pass closed several real races in checkout/order/receipt/auth code. See
+docs/DECISIONS.md #34-40 for what was found and why each fix works; this section states the rules
+now actually enforced.
+
+- **Idempotency is scoped to the cart, not just the key.** `POST /orders` first looks up
+  `idempotencyKey` alone; if found, it ALSO checks the found order's `cartId` and hashed request
+  body match the current request. A key reused by a different cart (a client bug, or a guess/reuse
+  attempt) gets `409 IDEMPOTENCY_KEY_REUSED`, never somebody else's order. The `P2002` fallback path
+  (two simultaneous requests race to insert the same key) performs the identical cart/hash check
+  before ever returning the winning order.
+- **One cart produces at most one order.** Order creation atomically claims the cart with a
+  conditional `UPDATE ... WHERE status = 'ACTIVE'` as its very first step inside the transaction; a
+  second simultaneous checkout attempt on the same cart always loses that race and gets
+  `409 CART_ALREADY_ORDERED`, never a second order.
+- **Every check that decides what gets persisted re-reads fresh, transactional state** - cart
+  contents, prices, stock, shipping rate, and coupon validity are all read and validated INSIDE the
+  transaction, from a `tx.cart.findUnique` taken after the claim above, never from a pre-transaction
+  snapshot. `expectedTotal` (client-supplied, from the last quote it saw) is compared against the
+  freshly computed total; a mismatch is `409 PRICE_CHANGED` with the current numbers attached, never
+  a silent overwrite.
+- **Order/payment status transitions are guarded by a conditional `UPDATE` with a checked row
+  count**, not a plain `update`. Losing that race (another request changed the order first) returns
+  `409 ORDER_STATE_CHANGED` rather than silently overwriting a concurrent change.
+- **A lost stock commitment blocks confirmation/payment, not just a symptom.** If an order's stock
+  reservation(s) expired or were released before staff act on it (rather than genuinely having
+  unlimited-stock items only), `CONFIRMED`/`PAID` are refused with `409 STOCK_RESERVATION_LOST`
+  ("requires manual review") instead of silently proceeding with a commitment that no longer exists.
+- **Refresh token rotation is atomic.** Consuming a refresh token (marking it used) and minting its
+  successor happen in one transaction, guarded by the same conditional-`UPDATE`-with-checked-count
+  pattern (`WHERE revokedAt IS NULL`). Two concurrent refreshes of the same token can never both
+  succeed - exactly one wins and gets a valid new pair; the other gets `401`.
+
+## 28. Order-level expiry deadline, separate from any one stock reservation
+
+`Order.reservationDeadline` is a field on the order itself, independent of any specific
+`StockReservation.expiresAt` - see docs/DECISIONS.md #35 for why these are deliberately two
+different concepts. It is what actually drives auto-cancellation (`OrdersService.cancelExpiredOrders`),
+not "did some reservation happen to expire":
+
+- **`INSTAPAY_MANUAL`** orders always get a deadline, from `INSTAPAY_REVIEW_DEADLINE_MINUTES`
+  (default 1440 = 24h), exactly as before.
+- **`CASH_ON_DELIVERY`** orders get **no deadline by default** (`reservationDeadline: NULL`, which
+  means "never auto-expire"). A submitted COD order is real - a courier is expected to collect
+  payment on delivery - and must not inherit the short abandoned-checkout timeout meant for an
+  unconfirmed hold. An operator can opt into COD auto-expiry by setting `COD_EXPIRY_MINUTES`
+  (commented out by default in `.env.example`); until then, a COD order stays `PENDING` until staff
+  act on it, however long that takes.
+- **An order with only `isUnlimitedStock` items has no `StockReservation` rows at all**, and
+  therefore nothing for the old reservation-based sweep to ever act on. `reservationDeadline` fixes
+  this: such an order still gets a real, independent deadline and is still auto-cancelled correctly
+  when it passes (verified in `test/order-concurrency.e2e-spec.ts`).
+- The expiry sweep (`OrderExpiryService.sweepAndCancel`, §21) now does two independent things each
+  run: release any `StockReservation` whose `expiresAt` has genuinely passed (re-checked
+  atomically at release time - a reservation that was pinned to `NULL` by a concurrent `CONFIRMED`
+  transition in between is never released), and separately cancel any `PENDING`/`UNPAID` order
+  whose `reservationDeadline` has passed, releasing its own active reservations and any owed coupon
+  usage as part of the same cancellation. Both counts reported by the sweep reflect only genuine
+  transitions that actually happened.
+
+## 29. Storefront/catalog correctness fixes (Phase 5)
+
+- **`?availableOnly=false` now means false.** A two-layer bug (`Boolean("false") === true` in plain
+  JS, compounded by the global `ValidationPipe`'s implicit type conversion running before any custom
+  `@Transform` could see the original string) made this query parameter ignore the string `"false"`
+  entirely. Fixed in `PublicProductQueryDto` - see docs/DECISIONS.md #39.
+- **The `availableOnly=true` filter now accounts for `reserved`, not just `onHand`,** and requires
+  `isUnlimitedStock: true` for a variant with no linked `StockItem` - it previously treated any
+  `stockItemId: null` variant as automatically available, which contradicts §4's own rule.
+- **Shared stock is aggregated across cart lines in the informative add/update check**, not just at
+  checkout-time reservation. Two different variants (e.g. two designs on the same blank) that
+  together would exceed a shared `StockItem`'s available quantity are now rejected at cart-mutation
+  time too, matching what checkout already enforced atomically.
+- **Public variant and cart-line thumbnails** - a variant-specific image wins if one was uploaded,
+  otherwise the parent product's own primary image is used, so a line/variant is never
+  thumbnail-less just because nobody attached a photo to that specific phone-model/case-type
+  combination. Never sourced from `PaymentReceipt` - a completely separate table (§26).
+
+## 30. Homepage content and informational pages (CMS)
+
+A small, structured CMS - explicit typed sections, deliberately **not** a general page builder (see
+docs/DECISIONS.md #41).
+
+- **Homepage sections** (`HomepageSection`): a `type` (`BANNER` | `PROMO_STRIP`), bilingual
+  title/body, an optional attached `MediaAsset`, an optional relative `linkUrl`, `displayOrder`, and
+  `isEnabled` (default `false` - a section is never shown on the public homepage just by being
+  created; a staff member must deliberately enable it). `GET /homepage-sections` (public) returns
+  only enabled sections, ordered, with localized text and resolved media.
+- **Informational pages** (`Page`): a stable, unique `slug`, bilingual title/body, and a
+  `status` (`DRAFT` | `PUBLISHED`). `GET /pages` and `GET /pages/:slug` (public) only ever return
+  `PUBLISHED` pages - a `DRAFT` page 404s for an anonymous client exactly like an unpublished
+  `Product`. `publishedAt` records the first time a page went live and is not cleared on unpublish,
+  so staff retain that history.
+- **Media deletion stays safe.** `HomepageSection.mediaAssetId` is a plain FK with
+  `onDelete: Restrict`, so `MediaService.delete` already refuses to delete a `MediaAsset` still
+  referenced by a section - the same generic FK-violation handling used for product/variant media,
+  with no special-casing needed.
+- **No invented policy content.** Seed data for a demo page/banner is explicitly marked
+  `[DEMO CONTENT]`/`(demo)` in its own body text - a real warranty, delivery, or legal policy must
+  be supplied by the business before publishing (see `prisma/seed.ts`).
+- Roles: `OWNER_ADMIN` and `CATALOG_MANAGER` can manage both; no new role was added.
+
+## 31. Two-item bundle promotions
+
+A configurable mechanism for "buy two eligible items together for a fixed total," left **disabled**
+until an owner supplies real commercial values - see docs/DECISIONS.md #42-43 for the full design
+rationale, including the deterministic grouping algorithm.
+
+- **Configuration (`BundlePromotion`)**: a `name` (internal label only, never shown to customers),
+  `fixedTotal` + `currency` (nullable - both required before it can be enabled),
+  `requireDifferentPhoneModels` (default `true` - the defining "one of each phone model" shape),
+  `isRepeatable` (whether more than one instance can apply per cart), `allowCouponStacking`
+  (default `false`), `startsAt`/`expiresAt`, and `isEnabled` (default `false`).
+- **Eligible variants (`BundleEligibleVariant`)**: an explicit list of variants opted into the
+  bundle, each with its own `surchargeAmount` (default 0) added on top of `fixedTotal` when that
+  variant fills a slot - an explicit, per-variant premium-eligibility mechanism, not a blanket rule.
+- **Activation requires complete configuration.** `BundlesService` refuses `isEnabled: true` unless
+  `fixedTotal` and `currency` are both set, at least two eligible variants are configured, and - when
+  `requireDifferentPhoneModels` is set - those variants actually span at least two distinct phone
+  models (including "no phone model" as its own distinct bucket, for plain accessories). A real
+  promotion never goes live half-configured.
+- **A bundle can never increase the payable total.** If `fixedTotal` plus the two chosen variants'
+  surcharges would exceed their combined normal price (a misconfiguration), that pairing - and any
+  further pairing for that promotion in that cart - is simply skipped; the affected units are priced
+  normally instead.
+- **Coupon stacking is an explicit, per-bundle policy.** When `allowCouponStacking` is `false` (the
+  default) and a cart currently has a valid coupon applied, that bundle's discount is skipped
+  entirely for the whole cart, rather than silently combining two separate discounts.
+- **Discount allocation is exact and deterministic.** The two units of a bundle instance split its
+  discount via the same proportional-with-remainder-to-last-line allocator already used for coupon
+  discounts (`allocateDiscount`), so the two shares always sum to exactly the instance's discount -
+  no fractional minor unit is ever lost or invented.
+- **The same calculation runs in the cart view, the checkout quote, and order creation** -
+  `CartPricingService.buildView` and `OrdersService.createOrder` both call the identical pure
+  `computeBundleInstances` function against the same active-bundle configuration, so what a customer
+  sees before checkout is exactly what they are charged.
+- **Every applied bundle instance is persisted for refunds.** A `BundleInstance` row snapshots
+  `fixedTotalApplied`/`normalSubtotal`/`discountAmount` at the moment it was applied (never re-read
+  from the live `BundlePromotion` afterwards); the `OrderItem` row(s) it produced point back at it
+  via `bundleInstanceId`. A single cart line whose quantity was only partially consumed by a bundle
+  pairing is split across more than one `OrderItem` row at order-creation time so each row's
+  `bundleDiscount` stays exact.
+
+## 32. Minimal manual refund/return administration
+
+Staff-only; no customer-facing refund request flow and no automated money movement anywhere - a
+refund record documents that money was already sent back to a customer through some outside channel
+(bank transfer, InstaPay, cash). See docs/DECISIONS.md #44.
+
+- **`POST /admin/orders/:id/refunds`** (`OWNER_ADMIN` only) records `amount`, `currency`, `reason`,
+  the acting staff member, and a client-supplied `idempotencyKey` (a retry with the same key is a
+  safe no-op, same pattern as order creation). Refused (`409`) unless the order's `paymentStatus` is
+  currently `PAID` or `PARTIALLY_REFUNDED`, and unless `currency` matches the order's currency.
+- **Refunds can never exceed what was actually paid.** The running sum of an order's `Refund` rows
+  can never exceed `Order.total` (the only amount ever recorded as "paid" under the current
+  cash/InstaPay model, which has no partial-payment concept) - enforced under a `SELECT ... FOR
+  UPDATE` row lock on the order for the duration of the transaction, so two concurrent refund
+  requests on the same order can never together exceed the cap.
+- **`Order.paymentStatus` is always derived from recorded refunds, never set directly.** Once the
+  running total reaches `Order.total` the status becomes `REFUNDED`; anywhere in between it is
+  `PARTIALLY_REFUNDED`. `PATCH /admin/orders/:id/payment-status` (the generic status endpoint, §20)
+  explicitly refuses both `PARTIALLY_REFUNDED` and `REFUNDED` as a manually-requested target - the
+  refunds endpoint is the only path that can ever produce them, so the over-refund cap can never be
+  bypassed by a different route.
+- **Reconciling money received after cancellation still goes through `flagLatePayment`** (§25 item
+  7), unchanged - refunds are strictly about money going back OUT, and never reopen fulfillment.
+- **Item returns (`OrderItemReturn`) are tracked separately from refunds.** `POST
+  /admin/orders/:id/items/:itemId/returns` records a returned quantity, capped so the running total
+  per line can never exceed that line's purchased quantity - independent of whether a refund was
+  ever issued for it (a goodwill refund needs no physical return; a physical return doesn't
+  automatically justify one either).
+- **Restocking is a separate, explicit, authorized action - never automatic.** Recording a return
+  does not touch `StockItem.onHand` at all. Actually returning a unit to sellable stock requires a
+  staff member to call the existing `PATCH /admin/stock-items/:id/adjust` with a positive `delta`
+  and its own `reason` (now correctly persisted onto the `StockMovement` row itself, not just the
+  audit log - see docs/DECISIONS.md #44) - so a printed, customer-returned case is never silently
+  treated as an unused shared blank.

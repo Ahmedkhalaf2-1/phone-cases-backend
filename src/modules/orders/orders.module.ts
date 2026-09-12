@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { CartModule } from '../cart/cart.module';
 import { ReservationsModule } from '../inventory/reservations/reservations.module';
 import { PaymentReceiptsModule } from '../payments/receipts/payment-receipts.module';
+import { BundlesModule } from '../promotions/bundles/bundles.module';
 import { ShippingModule } from '../shipping/shipping.module';
 import { CheckoutController } from './checkout.controller';
 import { CheckoutService } from './checkout.service';
@@ -11,9 +12,17 @@ import { OrderExpiryService } from './order-expiry.service';
 import { OrdersAdminController } from './orders-admin.controller';
 import { OrdersPublicController } from './orders-public.controller';
 import { OrdersService } from './orders.service';
+import { RefundsModule } from './refunds/refunds.module';
 
 @Module({
-  imports: [CartModule, ReservationsModule, ShippingModule, PaymentReceiptsModule],
+  imports: [
+    CartModule,
+    ReservationsModule,
+    ShippingModule,
+    PaymentReceiptsModule,
+    BundlesModule,
+    RefundsModule,
+  ],
   controllers: [
     CheckoutController,
     OrdersPublicController,

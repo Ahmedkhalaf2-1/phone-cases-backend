@@ -85,7 +85,7 @@ export class StockItemsService {
         data: {
           stockItemId: id,
           delta: dto.delta,
-          reason: 'manual_adjustment',
+          reason: dto.reason,
           staffUserId: actor.id,
         },
       });

@@ -414,4 +414,51 @@ describe('Cart (e2e)', () => {
       await request(app.getHttpServer()).get('/api/v1/cart').set('X-Cart-Token', token).expect(200);
     });
   });
+
+  describe('shared stock is aggregated across cart lines', () => {
+    it('rejects adding a second line that would push combined demand for a shared StockItem over available stock', async () => {
+      const stockItem = await prisma.stockItem.create({
+        data: { sku: `SHARED-${Date.now()}`, nameEn: 'Blank', onHand: 5 },
+      });
+      const { product, variant: variantA } = await seedPublishedVariant(1000);
+      await prisma.productVariant.update({
+        where: { id: variantA.id },
+        data: { stockItemId: stockItem.id, isUnlimitedStock: false },
+      });
+      const variantB = await prisma.productVariant.create({
+        data: {
+          productId: product.id,
+          sku: `SHARED-B-${Date.now()}`,
+          price: 1000,
+          stockItemId: stockItem.id,
+        },
+      });
+      const { token } = await createCart();
+
+      // First line takes 3 of the 5 available units.
+      await request(app.getHttpServer())
+        .post('/api/v1/cart/items')
+        .set('X-Cart-Token', token)
+        .send({ variantId: variantA.id, quantity: 3 })
+        .expect(201);
+
+      // A second, DIFFERENT variant sharing the same StockItem asking for
+      // 3 more would total 6 - over the 5 available - even though 3 alone
+      // would be fine in isolation.
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/cart/items')
+        .set('X-Cart-Token', token)
+        .send({ variantId: variantB.id, quantity: 3 })
+        .expect(409);
+      expect(res.body.code).toBe('INSUFFICIENT_STOCK');
+
+      // Exactly 2 more units must still be offered as available.
+      const ok = await request(app.getHttpServer())
+        .post('/api/v1/cart/items')
+        .set('X-Cart-Token', token)
+        .send({ variantId: variantB.id, quantity: 2 })
+        .expect(201);
+      expect(ok.body.items).toHaveLength(2);
+    });
+  });
 });

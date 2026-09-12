@@ -124,18 +124,26 @@ class EnvironmentVariables {
   @IsIn(Object.values(PaymentMethod))
   PAYMENT_METHOD: PaymentMethod = PaymentMethod.None;
 
-  @IsInt()
-  @Min(1)
-  RESERVATION_TTL_MINUTES: number = 15;
-
-  // How long an INSTAPAY_MANUAL order's stock reservation is held before
-  // it expires - deliberately separate from RESERVATION_TTL_MINUTES (and
-  // normally much longer) so a customer doesn't lose their stock hold
-  // while their bank transfer/screenshot review is still in progress. See
-  // docs/BUSINESS_RULES.md "InstaPay review deadline".
+  // How long an INSTAPAY_MANUAL order's stock reservation/order-level
+  // deadline is held before it auto-expires - long enough that a customer
+  // doesn't lose their stock hold while their bank transfer/screenshot
+  // review is still in progress. See docs/BUSINESS_RULES.md "InstaPay
+  // review deadline".
   @IsInt()
   @Min(1)
   INSTAPAY_REVIEW_DEADLINE_MINUTES: number = 1440;
+
+  // CASH_ON_DELIVERY orders do NOT auto-expire by default - a submitted
+  // COD order is real (a courier is expected to collect payment on
+  // delivery) and must not be silently cancelled just because staff
+  // haven't confirmed it within a short window. Leave unset to disable
+  // COD auto-expiry entirely (the default); set a value only if the
+  // business explicitly wants unconfirmed COD orders to auto-cancel after
+  // some period. See docs/DECISIONS.md.
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  COD_EXPIRY_MINUTES?: number;
 
   // Payment receipts (InstaPay screenshots) are stored privately, never
   // under MEDIA_LOCAL_DIR (which is served publicly at /uploads) - see

@@ -77,6 +77,26 @@ describe('Auth (e2e)', () => {
       .expect(200);
   });
 
+  it('lets only one of two concurrent refreshes of the same token succeed', async () => {
+    const { refreshToken } = await createStaffAndLogin(app, StaffRole.OWNER_ADMIN);
+
+    const [resA, resB] = await Promise.all([
+      request(app.getHttpServer()).post('/api/v1/auth/refresh').send({ refreshToken }),
+      request(app.getHttpServer()).post('/api/v1/auth/refresh').send({ refreshToken }),
+    ]);
+
+    const statuses = [resA.status, resB.status].sort();
+    expect(statuses).toEqual([200, 401]);
+
+    const winner = resA.status === 200 ? resA : resB;
+    // The successor session from the winning refresh must actually work -
+    // proving exactly one valid successor was minted, not zero.
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/refresh')
+      .send({ refreshToken: winner.body.refreshToken })
+      .expect(200);
+  });
+
   it('revokes a refresh token on logout so it can no longer be used', async () => {
     const { refreshToken } = await createStaffAndLogin(app, StaffRole.OWNER_ADMIN);
 
