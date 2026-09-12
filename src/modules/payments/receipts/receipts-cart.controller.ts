@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Controller,
   Get,
   Param,
@@ -82,7 +83,12 @@ export class ReceiptsCartController {
 
   private assertFilePresent(file: Express.Multer.File): void {
     if (!file) {
-      throw new Error('No file was uploaded under the "file" field');
+      // A plain Error here would fall through AllExceptionsFilter's
+      // generic 500 branch - a missing upload field is a client mistake
+      // (400), not a server fault. MediaAdminController has the same
+      // pre-existing gap; left alone here since fixing it is outside this
+      // module's scope.
+      throw new BadRequestException('No file was uploaded under the "file" field');
     }
   }
 }

@@ -253,6 +253,15 @@ describe('Payment receipts / InstaPay manual (e2e)', () => {
   });
 
   describe('rejection paths', () => {
+    it('rejects a request with no file at all as a 400, not a 500', async () => {
+      const token = await createCartWithItem();
+
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/cart/receipts')
+        .set('X-Cart-Token', token);
+      expect(res.status).toBe(400);
+    });
+
     it('rejects order creation missing a required receiptId for INSTAPAY_MANUAL', async () => {
       const rate = await seedEgyptShipping();
       const token = await createCartWithItem();

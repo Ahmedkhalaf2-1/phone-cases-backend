@@ -85,6 +85,8 @@ npm run test:e2e
 - `docs/API.md` — API conventions (pagination, errors, auth, filtering)
 - `docs/DECISIONS.md` — assumptions, tradeoffs, and open business questions
 - `docs/PROGRESS.md` — what's done, what's blocked, what's next
+- `docs/DEPLOYMENT.md` — running this in production: env checklist, process management, file
+  storage persistence, and the current single-instance limitation on the scheduled jobs
 
 ## Notes on local ports
 

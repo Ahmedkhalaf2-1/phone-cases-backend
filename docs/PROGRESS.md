@@ -251,16 +251,35 @@ requests/responses if needed.
   TypeScript 5.9 not 7, `@nestjs/config` 4.x not 12.x) — these aren't arbitrary and shouldn't be
   "corrected" to latest without re-checking the ecosystem compatibility notes there.
 
-## Next milestone: Phase 4
+## Phase 4 status
 
-With Phases 1-3 complete, Phase 4 work proceeds on items that do not depend on the still-open
-payment-provider decision:
+1. **Security review** - done, twice: a manual pass over the order/payment/coupon/reservation
+   surfaces found and fixed 4 real gaps (docs/DECISIONS.md #25-28), and a second pass over the new
+   receipt-upload surface (multipart handling, private storage, file streaming) found and fixed one
+   more (a missing-file upload returning `500` instead of `400`) - see docs/DECISIONS.md.
+2. **Production media storage (S3)** - still a stub that fails loudly (`503`), for both public media
+   and (as of the receipts work) private receipts too. Not implemented without real S3 credentials
+   to verify against - see docs/DECISIONS.md #12. **Still open.**
+3. **Operational readiness** - `docs/DEPLOYMENT.md` now covers the production env checklist,
+   process-management options, file-storage persistence requirements, backups, and health/readiness
+   endpoints. It also documents a real architectural limitation surfaced by this review: the two
+   `@nestjs/schedule` interval jobs (order expiry, receipt cleanup) assume a single running
+   instance - correctness is never at risk (every state change goes through the same atomic
+   conditional-UPDATE guards used everywhere else), but a multi-instance deployment would run each
+   sweep redundantly on every instance. Recommended: one instance until a distributed-lock or
+   external-cron approach is built. **Documented; the distributed-scheduling work itself is a
+   separate, not-yet-started item.**
+4. **Bundle promotion** - still blocked on the five business decisions in docs/DECISIONS.md #23.
+   **Still open.**
+5. **Payment provider** - resolved for manual payment (cash on delivery + InstaPay manual with an
+   admin-verified screenshot, docs/DECISIONS.md #2/#29-33). A real online payment gateway remains
+   out of scope, not a silent gap. **Manual methods done; gateway integration still open.**
 
-1. Security review of the order/payment/coupon/reservation surfaces added in Phase 3 (the areas
-   with the most concurrency and authorization-sensitive logic in the codebase so far).
-2. Production media storage (S3) - currently a stub that fails loudly (`503`).
-3. Operational readiness: deployment documentation, and re-confirming the scheduled expiry job's
-   behavior under a real process manager (not just `nohup`/manual boot).
-4. The bundle promotion, once the business decisions in docs/DECISIONS.md #23 are answered.
-5. Real payment provider integration, once a provider (or a confirmed COD-only decision) is chosen -
-   docs/DECISIONS.md #22.
+## Next milestone
+
+With the manual-payment flow, its security review, and deployment documentation in place, remaining
+Phase 4 work is genuinely blocked, either by an infrastructure dependency this environment can't
+provide (S3 credentials to test a real driver against) or by business decisions not yet made (the
+bundle promotion, a real payment gateway). The next concrete, unblocked engineering item is the
+distributed-scheduling work implied by §3 above, if/when this deployment needs more than one
+instance.
