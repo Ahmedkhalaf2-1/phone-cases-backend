@@ -785,3 +785,15 @@ that isn't. Confirming/paying still fails atomically with `STOCK_RESERVATION_LOS
 state changes; unlimited-stock items and shared blank stock are unaffected (they contribute no
 reservation rows, so they never affect this aggregate). No new persisted data or migration was
 needed - `StockReservation` already carried everything required. See docs/DECISIONS.md.
+
+## 38. Reservation locks and cancellation after refunds
+
+Confirmation and payment lock the order first, then its reservation rows in ID order before
+reading stock coverage. Reservation locks remain held through pinning/consumption and commit.
+This also coordinates with standalone and lazy expiry, which update reservation rows without
+locking the order: expiry winning first is visible to the coverage check; confirmation winning
+first pins the reservation before expiry can recheck its deadline.
+
+Cancellation releases coupon usage only for UNPAID, PENDING, or FAILED payments, and only once.
+PAID, PARTIALLY_REFUNDED, and REFUNDED orders retain their coupon usage because funds were
+previously received. A refund does not restore coupon eligibility.

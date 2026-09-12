@@ -701,11 +701,15 @@ export class OrdersService {
         // stale UNPAID snapshot read before this transaction acquired the
         // lock. This is what "legitimate paid-order cancellation" and
         // "never release paid-order coupon usage using stale unpaid
-        // state" both come down to. See docs/BUSINESS_RULES.md.
+        // state" both come down to. Refunded states also represent a
+        // previously paid order and must retain coupon usage.
+        // See docs/BUSINESS_RULES.md.
         couponReleaseNeeded = Boolean(
           order.couponId &&
           !order.couponUsageReleased &&
-          order.paymentStatus !== PaymentStatus.PAID,
+          (order.paymentStatus === PaymentStatus.UNPAID ||
+            order.paymentStatus === PaymentStatus.PENDING ||
+            order.paymentStatus === PaymentStatus.FAILED),
         );
       }
 
@@ -901,6 +905,16 @@ export class OrdersService {
     tx: Prisma.TransactionClient,
     orderId: string,
   ): Promise<{ active: string[]; hasAny: boolean; hasConsumed: boolean; fullyCovered: boolean }> {
+    // Callers already hold the order lock. Lock its reservations before
+    // reading coverage: standalone/lazy expiry does not lock the order.
+    // These locks survive through pin/consume and transaction commit, so
+    // expiry either finishes before this check or sees the pinned/consumed
+    // state afterwards. Stable ordering avoids competing lock orders here.
+    await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
+      SELECT id FROM stock_reservations
+      WHERE "orderId" = ${orderId}
+      ORDER BY id FOR UPDATE;
+    `);
     const all = await tx.stockReservation.findMany({
       where: { orderId },
       select: { id: true, status: true, stockItemId: true, quantity: true },

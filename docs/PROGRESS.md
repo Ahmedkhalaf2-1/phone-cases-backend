@@ -425,6 +425,15 @@ requests/responses if needed.
    admin-verified screenshot, docs/DECISIONS.md #2/#29-33). A real online payment gateway remains
    out of scope, not a silent gap. **Manual methods done; gateway integration still open.**
 
+## Focused follow-up to 751ab8d
+
+- Locked order reservations before coverage checks, keeping standalone/lazy expiry from
+  releasing stock between validation and confirmation/payment.
+- Restricted cancellation coupon release to UNPAID/PENDING/FAILED; refunded orders retain usage.
+- No migrations or API changes. Verification: Prisma client generation, `tsc --noEmit`,
+  `nest build`, and `git diff --check` passed. No tests added or run, as requested by the owner;
+  runtime concurrency behavior was not independently exercised in this follow-up.
+
 ## Next milestone
 
 With Phase 5's correctness hardening, CMS, bundle promotions, and manual refund/return
