@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { AppException } from '../exceptions/app.exception';
+import { redactSensitiveUrl } from '../utils/log-redaction.util';
 
 interface ErrorBody {
   code: string;
@@ -39,11 +40,15 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
       this.logger.error(
-        `${request.method} ${request.url} -> ${status} [${correlationId ?? 'no-correlation-id'}]`,
+        `${request.method} ${redactSensitiveUrl(request.url)} -> ${status} [${correlationId ?? 'no-correlation-id'}]`,
         exception instanceof Error ? exception.stack : undefined,
       );
     }
 
+    // `path` here echoes the request back to the same caller who sent it
+    // (a normal REST error-body convention) - it is not a log, so it is
+    // not redacted; only the two `logger.*` lines above (which persist
+    // into server-side logs a third party could read) are.
     response.status(status).json({
       statusCode: status,
       correlationId,

@@ -3,8 +3,12 @@ import type { AdminProductWithRelations } from './products.service';
 
 function isVariantAvailable(variant: AdminProductWithRelations['variants'][number]): boolean {
   if (!variant.isActive) return false;
-  if (!variant.stockItem) return true;
-  // See docs/DECISIONS.md - reserved quantity bookkeeping is Phase 2 scope.
+  if (!variant.stockItem) {
+    // No StockItem linked: available only if a staff member explicitly
+    // opted this variant into unlimited stock - never assumed by default.
+    // See docs/BUSINESS_RULES.md and docs/DATA_MODEL.md §4.
+    return variant.isUnlimitedStock;
+  }
   return variant.stockItem.onHand - variant.stockItem.reserved > 0;
 }
 

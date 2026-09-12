@@ -69,6 +69,15 @@ filters) per the instruction to start with PostgreSQL capabilities rather than r
 separate search service. See `docs/DECISIONS.md` for the two-pass query strategy used to sort by
 effective price without a full SQL aggregation, and its scaling limitation.
 
+## Admin variants: explicit stock configuration (Phase 4)
+
+`POST/PATCH /api/v1/admin/products/:productId/variants(/:variantId)` accept an `isUnlimitedStock`
+boolean (default `false`) alongside the existing `stockItemId`. A variant with **neither** set is
+not purchasable anywhere (public catalog, cart, checkout) - a stockless variant is never assumed
+available; `isUnlimitedStock: true` is the explicit opt-in required for that (a plain accessory, a
+made-to-order item). Setting `isUnlimitedStock: true` together with a `stockItemId` is rejected
+(`400`) - the two are mutually exclusive. See `docs/BUSINESS_RULES.md` §4 and docs/DECISIONS.md #26.
+
 ## Locale and bilingual responses
 
 Every public read endpoint accepts `?locale=en|ar` (default `en`). The response contains a single

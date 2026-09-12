@@ -50,4 +50,16 @@ export class CreateVariantDto {
   @IsOptional()
   @IsUUID()
   stockItemId?: string;
+
+  @ApiPropertyOptional({
+    default: false,
+    description:
+      'Explicit opt-in: this variant is purchasable with no stock limit even though it has no ' +
+      'linked stockItemId (e.g. a plain accessory, or a made-to-order item). Defaults to false - ' +
+      'a variant with neither stockItemId nor isUnlimitedStock:true is NOT purchasable. Cannot be ' +
+      'true at the same time as stockItemId is set.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  isUnlimitedStock?: boolean;
 }

@@ -21,12 +21,17 @@ describe('Cart (e2e)', () => {
     await resetDatabase(app);
   });
 
+  // isUnlimitedStock: true is the explicit administrative opt-in a variant
+  // with no linked StockItem needs to be purchasable at all (see
+  // docs/BUSINESS_RULES.md) - set here since these tests are about cart
+  // mechanics, not the stock-tracking feature itself (which has its own
+  // dedicated tests below).
   async function seedPublishedVariant(price = 10000) {
     const product = await prisma.product.create({
       data: { slug: 'space', nameEn: 'Space', nameAr: 'الفضاء', status: 'PUBLISHED' },
     });
     const variant = await prisma.productVariant.create({
-      data: { productId: product.id, sku: 'SPACE-1', price },
+      data: { productId: product.id, sku: 'SPACE-1', price, isUnlimitedStock: true },
     });
     return { product, variant };
   }
@@ -272,7 +277,7 @@ describe('Cart (e2e)', () => {
     it('replaces a line item variant, keeping the same quantity', async () => {
       const { product, variant: firstVariant } = await seedPublishedVariant(1000);
       const otherVariant = await prisma.productVariant.create({
-        data: { productId: product.id, sku: 'SPACE-2', price: 2000 },
+        data: { productId: product.id, sku: 'SPACE-2', price: 2000, isUnlimitedStock: true },
       });
       const { token } = await createCart();
       const added = await request(app.getHttpServer())
@@ -296,7 +301,7 @@ describe('Cart (e2e)', () => {
     it('merges into an existing line when replacing into an already-present variant', async () => {
       const { product, variant: variantA } = await seedPublishedVariant(1000);
       const variantB = await prisma.productVariant.create({
-        data: { productId: product.id, sku: 'SPACE-B', price: 1000 },
+        data: { productId: product.id, sku: 'SPACE-B', price: 1000, isUnlimitedStock: true },
       });
       const { token } = await createCart();
       const addedA = await request(app.getHttpServer())

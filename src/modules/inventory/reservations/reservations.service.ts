@@ -414,10 +414,18 @@ export class ReservationsService {
    * unbounded work in one tick. Returns the released reservations (not
    * just a count) so a caller can react per-order (see OrdersService,
    * which cancels any order whose reservations just expired).
+   *
+   * `expiresAt: null` (see pinActiveForOrderInTransaction) means "does not
+   * expire" - such a reservation can never match this query, by
+   * construction, regardless of how much wall-clock time passes. There is
+   * no separate "is this order confirmed?" branch needed here.
    */
   async releaseAllExpired(limit = 200): Promise<StockReservation[]> {
     const expired = await this.prisma.stockReservation.findMany({
-      where: { status: ReservationStatus.ACTIVE, expiresAt: { lt: new Date() } },
+      where: {
+        status: ReservationStatus.ACTIVE,
+        expiresAt: { not: null, lt: new Date() },
+      },
       select: { id: true },
       take: limit,
     });
@@ -433,12 +441,36 @@ export class ReservationsService {
 
   private async releaseExpiredForStockItem(stockItemId: string): Promise<void> {
     const expired = await this.prisma.stockReservation.findMany({
-      where: { stockItemId, status: ReservationStatus.ACTIVE, expiresAt: { lt: new Date() } },
+      where: {
+        stockItemId,
+        status: ReservationStatus.ACTIVE,
+        expiresAt: { not: null, lt: new Date() },
+      },
       select: { id: true },
     });
     for (const { id } of expired) {
       await this.release(id, ReservationStatus.EXPIRED);
     }
+  }
+
+  /**
+   * Pins every ACTIVE reservation for one order so it can never again be
+   * picked up by the TTL expiry sweep - by setting `expiresAt` to `null`
+   * ("does not expire"), not a magic far-future date. Called when an
+   * order's fulfillment status moves to CONFIRMED
+   * (OrdersService.updateFulfillmentStatus), inside the same transaction
+   * as that status write. From this point on, only an explicit consume()
+   * (payment) or release()/releaseManyInTransaction() (cancellation) can
+   * resolve the reservation - never an unrelated abandoned-cart timeout.
+   */
+  async pinActiveForOrderInTransaction(
+    tx: Prisma.TransactionClient,
+    orderId: string,
+  ): Promise<void> {
+    await tx.stockReservation.updateMany({
+      where: { orderId, status: ReservationStatus.ACTIVE },
+      data: { expiresAt: null },
+    });
   }
 
   async findForStockItem(stockItemId: string): Promise<StockReservation[]> {

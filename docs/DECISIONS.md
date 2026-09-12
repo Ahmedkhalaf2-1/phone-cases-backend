@@ -225,19 +225,17 @@ had the expiry sweep release any `ACTIVE` reservation past its `expiresAt`, full
 awareness of the order's fulfillment status. That means a `CONFIRMED`-but-unpaid order (e.g. staff
 confirmed it same-day, but the customer's payment takes a few days to arrive) could silently lose
 its stock hold to the same TTL meant only to reclaim abandoned, never-confirmed carts. Fixed by
-**pinning**: on the transition to `CONFIRMED`, every `ACTIVE` reservation's `expiresAt` is pushed to
-100 years in the future, in the same transaction as the status change (see
-`docs/DATA_MODEL.md` §10, `docs/BUSINESS_RULES.md` §21). This means the expiry sweep's own query
-(`status = 'ACTIVE' AND expiresAt < now()`) never even matches a confirmed order's reservation —
-there's no separate "is this order confirmed?" branch needed inside the sweep itself. Verified both
-in `test/orders.e2e-spec.ts` and by a live smoke test against a running instance (confirm an order,
-run the manual sweep endpoint, verify `{releasedReservations: 0, cancelledOrders: 0}` and the
-order/stock untouched).
+**pinning**: on the transition to `CONFIRMED`, every `ACTIVE` reservation is taken out of reach of
+the expiry sweep in the same transaction as the status change.
 
-One deliberate consequence: this only protects reservations whose `expiresAt` is never again reset
-backward by anything else. Nothing in the codebase does that, so this is not a gap in practice — but
-if a future feature ever needs to "un-confirm" an order back to `PENDING`, it would need to also
-decide what `expiresAt` to restore (or re-run `reserve()` fresh), not just flip the status column.
+**Superseded by #25 below.** The first version of this fix pinned by setting `expiresAt` to a fixed
+point 100 years in the future — a workaround that happened to work (the sweep's `expiresAt < now()`
+check would never match it in practice) but modeled "does not expire" as a magic timestamp instead
+of an explicit state, which a later verification pass flagged as exactly the kind of undocumented
+hack that shouldn't ship. #25 replaces it with `expiresAt: NULL` as the real, explicit
+"never expires" value. The correctness property this section describes (the sweep's own query can
+never match a confirmed order's reservation, with no separate "is this order confirmed?" branch
+needed) still holds — only the mechanism changed.
 
 ### 20. Marking a `CANCELLED` order `PAID` is now explicitly rejected
 
@@ -323,3 +321,100 @@ exploitable for injection (all values are already parameterized through Prisma),
 resource-abuse/hygiene gap on the most-exposed endpoint in the system. Fixed by adding sensible
 `@MaxLength` bounds to every free-text field on both DTOs; re-ran the full order/cart/checkout/
 shipping e2e suites afterward to confirm no legitimate value was rejected.
+
+## Phase 4 — targeted verification pass findings
+
+A follow-up review was asked to verify four specific requirements directly against the code (not
+inferred from documentation or the existing test count): whether the 100-year reservation-expiry
+value had been replaced with an explicit lifecycle; whether a stockless variant was still
+purchasable indefinitely without an explicit administrative choice; whether order creation still
+required reconfirmation on a changed quote; and whether guest tracking tokens were redacted from
+logs including request URLs. All four gaps below were real, found by reading the actual
+implementation, and fixed with regression tests before this commit.
+
+### 25. Replaced the 100-year reservation-expiry value with an explicit `expiresAt: NULL` state
+
+Confirmed present in code (`orders.service.ts`'s `PINNED_RESERVATION_EXPIRY()`, adding 100 years to
+`new Date()`) - this was flagged in #19 above as a workaround, not a design, and the verification
+pass treated it as a real outstanding item rather than something the earlier "verified live" note
+excused. `StockReservation.expiresAt` is now `DateTime?` (migration
+`20260912044837_phase4_explicit_stock_and_reservation_lifecycle`, applied to both dev and test
+databases, no data reset - existing non-null `expiresAt` values were left untouched by the
+migration). `NULL` is the explicit "does not expire" state:
+`ReservationsService.pinActiveForOrderInTransaction` sets it on the transition to `CONFIRMED`
+(replacing the inline far-future-date `updateMany` that used to live in `OrdersService`), and
+`releaseAllExpired`/the lazy per-stock-item sweep both filter `expiresAt: { not: null, lt: new
+Date() }`, so a pinned reservation can never match by construction - no behavior change from #19's
+correctness property, only the mechanism. Verified: a new e2e test in
+`test/reservations.e2e-spec.ts` (`pinActiveForOrderInTransaction sets expiresAt to null...`) creates
+an already-expired reservation, pins it, and confirms `releaseAllExpired()` leaves it untouched;
+`test/orders.e2e-spec.ts`'s existing CONFIRMED-protection test now asserts `expiresAt` is `null`
+directly (previously asserted a far-future year, which no longer applies); and a live run against
+the dev database (`psql` query against `stock_reservations.expiresAt` immediately after confirming
+a real order) showed the column genuinely `NULL`, not a future date.
+
+### 26. `ProductVariant.isUnlimitedStock`: the missing explicit administrative choice for stockless variants
+
+Confirmed present in code before this fix: `product-response.mapper.ts`'s `isVariantAvailable`
+returned `true` unconditionally whenever `!variant.stockItem`, `CartPricingService`'s `hasStock`
+did the same, and - the most consequential of the three, since it's a functional gate rather than a
+display flag - `CartService.assertSoftAvailability` took `if (!stockItem) return;`, meaning a
+stockless variant could be added to a cart in **any quantity**, with no limit at all, regardless of
+what the catalog display claimed. None of the three consulted anything resembling an explicit
+opt-in; "no `StockItem` linked" was silently read as "unlimited," exactly what this verification
+pass was asked to confirm was not the case. Fixed by adding `ProductVariant.isUnlimitedStock
+Boolean @default(false)` (same migration as #25) and updating all three call sites to require it
+when `stockItemId` is null. `VariantsService` also now rejects (`400`) setting `isUnlimitedStock:
+true` together with a `stockItemId`, so the two flags can never contradict each other.
+
+**Preserving existing data without silently granting unlimited stock:** the migration adds the
+column with `DEFAULT false` for every existing row (no variant needed deleting, resetting, or
+guessed-at reclassification) - which means every pre-existing stockless variant (the demo seed
+catalog included) became correctly "not purchasable" the moment this shipped, until explicitly
+opted back in. Seed data (`prisma/seed.ts`) was updated to set `isUnlimitedStock: true` explicitly
+on its demo variants, as the deliberate administrative choice a real admin would make for a
+catalog of untracked/demo items - not a code-level default reinstating the old behavior. Several
+existing e2e test fixtures (`test/cart.e2e-spec.ts`, `test/checkout.e2e-spec.ts`,
+`test/orders.e2e-spec.ts`, `test/catalog.e2e-spec.ts`) that create stockless variants purely to test
+unrelated cart/checkout/order mechanics were updated the same way, each with a comment explaining
+why. A new dedicated file, `test/stock-availability.e2e-spec.ts`, covers the feature itself
+end-to-end: the database default is `false`; the admin API rejects the contradictory combination; a
+non-opted-in stockless variant is unavailable in the public catalog AND rejected when added to a
+cart (`409 INSUFFICIENT_STOCK`); an explicitly opted-in one is available and can be fully checked
+out into an order with zero stock reservations created (correctly - there is nothing to reserve).
+
+### 27. Order-creation reconfirmation on a changed quote: verified already correct, no change needed
+
+`OrdersService.createOrder` already compares the server-recomputed
+`subtotal + discountTotal + shippingTotal` against the client-supplied `expectedTotal` and rejects
+a mismatch with `409 PRICE_CHANGED` plus the fresh totals (unchanged by this verification pass -
+see `docs/BUSINESS_RULES.md` §18 point 5). Re-ran
+`test/orders.e2e-spec.ts`'s `rejects a mismatched expectedTotal with PRICE_CHANGED...` test in
+isolation to confirm it still passes against current code, rather than trusting its presence in the
+file as proof - it does.
+
+### 28. Guest tracking tokens were being written to server logs via the raw request URL
+
+Confirmed present in code before this fix: `LoggingInterceptor` logged
+`` `${request.method} ${request.originalUrl} ...` `` on **every** request (both the success and
+error branches), and `AllExceptionsFilter` logged `request.url` unredacted on 5xx errors. Since
+`GET /orders/track/:trackingToken` puts the tracking credential directly in the URL path (not a
+header or body field, which were already covered by `LoggingInterceptor`'s existing
+`REDACTED_KEYS` body-field redaction), every single guest tracking request - including ordinary
+successful ones - wrote that guest's bearer credential to server logs in plaintext. Anyone with log
+read access could have used a logged token to look up (and read the full address/phone/items of)
+that guest's order, without ever needing to compromise the guest directly.
+
+Fixed with `src/common/utils/log-redaction.util.ts`'s `redactSensitiveUrl`, an explicit allowlist of
+sensitive route patterns (currently just `/orders/track/:token`) rather than a generic
+"long-random-looking segment" heuristic - a heuristic would also catch plain UUIDs (order ids,
+product ids) that are genuinely useful in logs for debugging, and an explicit list is easy to
+extend the day a new route puts a credential in its path. Wired into both `LoggingInterceptor` (both
+branches) and `AllExceptionsFilter`'s error-log line; the JSON error response's own `path` field is
+deliberately left un-redacted, since it only echoes the request back to the same caller who sent it
+and is not a log. Verified: unit tests for `redactSensitiveUrl` itself and for `LoggingInterceptor`
+(spying on `Logger.prototype.log`/`warn` to assert the raw token never appears in what's actually
+logged, not just that the pure function works in isolation); and a live check against a running
+instance - created a real order, hit its tracking endpoint, then `grep`-ed the live server log file
+for the raw token (zero matches) and confirmed the actual log line read
+`GET /api/v1/orders/track/[REDACTED] 200 ...`.

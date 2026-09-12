@@ -67,7 +67,7 @@ export class CartService {
         `Quantity for a single item cannot exceed ${MAX_CART_ITEM_QUANTITY}`,
       );
     }
-    this.assertSoftAvailability(variant.stockItem, newQuantity);
+    this.assertSoftAvailability(variant.stockItem, variant.isUnlimitedStock, newQuantity);
 
     await this.prisma.cartItem.upsert({
       where: { cartId_variantId: { cartId, variantId: dto.variantId } },
@@ -96,7 +96,7 @@ export class CartService {
     if (quantity === 0) {
       await this.prisma.cartItem.delete({ where: { id: itemId } });
     } else {
-      this.assertSoftAvailability(item.variant.stockItem, quantity);
+      this.assertSoftAvailability(item.variant.stockItem, item.variant.isUnlimitedStock, quantity);
       await this.prisma.cartItem.update({ where: { id: itemId }, data: { quantity } });
     }
 
@@ -155,7 +155,11 @@ export class CartService {
       (existingTargetItem?.quantity ?? 0) + originalItem.quantity,
       MAX_CART_ITEM_QUANTITY,
     );
-    this.assertSoftAvailability(newVariant.stockItem, resultingQuantity);
+    this.assertSoftAvailability(
+      newVariant.stockItem,
+      newVariant.isUnlimitedStock,
+      resultingQuantity,
+    );
 
     await this.prisma.$transaction(async (tx) => {
       if (existingTargetItem) {
@@ -250,8 +254,29 @@ export class CartService {
     }
   }
 
-  private assertSoftAvailability(stockItem: StockItem | null, requestedQuantity: number): void {
-    if (!stockItem) return;
+  /**
+   * A variant with no linked StockItem is only purchasable if a staff
+   * member explicitly opted it into unlimited stock (`isUnlimitedStock`)
+   * - never assumed by default (see docs/BUSINESS_RULES.md). This must
+   * stay consistent with the same rule in CartPricingService/
+   * product-response.mapper.ts, since a variant flagged unavailable there
+   * must not remain addable to the cart here.
+   */
+  private assertSoftAvailability(
+    stockItem: StockItem | null,
+    isUnlimitedStock: boolean,
+    requestedQuantity: number,
+  ): void {
+    if (!stockItem) {
+      if (!isUnlimitedStock) {
+        throw new AppException(
+          'INSUFFICIENT_STOCK',
+          'This item is not currently available for purchase',
+          HttpStatus.CONFLICT,
+        );
+      }
+      return;
+    }
     const available = stockItem.onHand - stockItem.reserved;
     if (requestedQuantity > available) {
       throw new AppException(

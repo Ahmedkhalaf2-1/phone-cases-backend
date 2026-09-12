@@ -157,7 +157,11 @@ async function main(): Promise<void> {
     await prisma.productVariant.upsert({
       where: { sku: seedVariant.sku },
       update: {},
-      create: { ...seedVariant, productId: spaceProduct.id },
+      // These demo variants have no StockItem linked - isUnlimitedStock:
+      // true is the explicit administrative choice required for them to
+      // show as purchasable (see docs/BUSINESS_RULES.md); it is never
+      // assumed just because stockItemId is absent.
+      create: { ...seedVariant, productId: spaceProduct.id, isUnlimitedStock: true },
     });
   }
 

@@ -1,6 +1,7 @@
 import { CallHandler, ExecutionContext, Injectable, Logger, NestInterceptor } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { Observable, tap } from 'rxjs';
+import { redactSensitiveUrl } from '../utils/log-redaction.util';
 
 const REDACTED_KEYS = new Set([
   'password',
@@ -42,18 +43,20 @@ export class LoggingInterceptor implements NestInterceptor {
     const start = Date.now();
     const correlationId = (request.headers['x-request-id'] as string | undefined) ?? '-';
 
+    const url = redactSensitiveUrl(request.originalUrl);
+
     return next.handle().pipe(
       tap({
         next: () => {
           const durationMs = Date.now() - start;
           this.logger.log(
-            `${request.method} ${request.originalUrl} ${response.statusCode} ${durationMs}ms [${correlationId}]`,
+            `${request.method} ${url} ${response.statusCode} ${durationMs}ms [${correlationId}]`,
           );
         },
         error: () => {
           const durationMs = Date.now() - start;
           this.logger.warn(
-            `${request.method} ${request.originalUrl} ${response.statusCode} ${durationMs}ms [${correlationId}] body=${JSON.stringify(
+            `${request.method} ${url} ${response.statusCode} ${durationMs}ms [${correlationId}] body=${JSON.stringify(
               redact(request.body),
             )}`,
           );

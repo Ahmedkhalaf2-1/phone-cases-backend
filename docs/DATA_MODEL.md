@@ -104,10 +104,15 @@ ProductVariant.stockItemId
 - Model (B): many design variants (different `Product`s, same phone model + case shape) can point
   at the **same** blank `StockItem`, and printing happens after the order is placed.
 
-`ProductVariant.stockItemId` is nullable — a variant with no linked stock item is treated as
-"not stock-tracked" (always available) rather than "always out of stock". This is a deliberate MVP
-simplification: it lets catalog work proceed before the inventory model is confirmed, without
-implying false scarcity.
+`ProductVariant.stockItemId` is nullable, for a variant with no physical counter to track at all
+(a plain accessory, a made-to-order item). **Such a variant is NOT automatically available.**
+`ProductVariant.isUnlimitedStock` (`Boolean`, `@default(false)`) is the explicit, auditable
+administrative opt-in required for it to be purchasable - a staff member must deliberately set it;
+it is never inferred from the absence of `stockItemId`. A variant with neither `stockItemId` nor
+`isUnlimitedStock: true` is simply unavailable everywhere (public catalog, cart, checkout) until
+one of those is set. `isUnlimitedStock` has no effect once `stockItemId` is set (availability then
+comes purely from the counter) - `VariantsService` rejects setting both together to avoid that
+ambiguous, self-contradictory state. See docs/BUSINESS_RULES.md §4 and docs/DECISIONS.md.
 
 **What Phase 1 implements:** `StockItemsService.adjust` performs a single conditional
 `UPDATE ... WHERE "onHand" + $delta >= 0` (raw SQL, see that file) so concurrent adjustments can
@@ -126,19 +131,25 @@ read-then-write. A reservation is later either:
 - **consumed** (`CONSUMED` status) — decrements both `onHand` and `reserved` together, and writes a
   `StockMovement` row (`reason: "reservation_consumed"`) in the same transaction.
 
-Expired reservations are swept lazily: every `reserve()` call first releases any expired `ACTIVE`
-reservations on *that specific stock item*, so a stale hold from a background job that hasn't run
-yet never blocks a legitimate new reservation. `ReservationsService.releaseAllExpired()` sweeps
-*every* stock item's expired reservations at once — exposed today as a manual admin endpoint
-(`POST /admin/stock-reservations/sweep-expired`); Phase 4 will call the same method from a cron.
+Expired reservations are swept both lazily (every `reserve()` call first releases any expired
+`ACTIVE` reservations on *that specific stock item*, so a stale hold never blocks a legitimate new
+reservation just because no background job has run yet) and on a schedule
+(`ReservationsService.releaseAllExpired()` sweeps *every* stock item's expired reservations at
+once, called every minute by `OrderExpiryScheduler` - Phase 3 - and also exposed as a manual admin
+trigger, `POST /admin/stock-reservations/sweep-expired`).
+
+`StockReservation.expiresAt` is nullable: `NULL` means "does not expire" - the state a reservation
+enters once its order is `CONFIRMED` (`ReservationsService.pinActiveForOrderInTransaction`), taking
+it out of reach of `releaseAllExpired`'s query (`expiresAt IS NOT NULL AND expiresAt < now()`) by
+construction, permanently, until an explicit `consume()` or `release()`. See §10 and
+docs/BUSINESS_RULES.md.
 
 `StockMovement` is an append-only ledger of every `onHand` change (manual adjustments, reservation
 consumption, and eventually restocks/returns), each with a `reason`, an optional
 `referenceType`/`referenceId` pointing at what caused it, and the acting staff member if any.
 
-**Not yet wired up:** no HTTP endpoint calls `reserve`/`consume` yet — that requires a checkout flow
-and an `Order` model, both Phase 3. `ReservationsService` is built and tested (see
-`test/reservations.e2e-spec.ts`) ready for Phase 3 to call.
+`reserve`/`reserveManyInTransaction`/`consumeManyInTransaction` are called from real order-creation
+and payment endpoints as of Phase 3 - see §10.
 
 ## 5. Media
 
@@ -255,9 +266,13 @@ consuming an order's stock touches one row per stock item, not one per line).
 
 A `StockReservation`'s `expiresAt` is set at creation to `now + RESERVATION_TTL_MINUTES` (protecting
 against an abandoned, never-confirmed order tying up stock forever). Once staff move an order's
-`fulfillmentStatus` to `CONFIRMED`, `OrdersService.updateFulfillmentStatus` pushes every one of that
-order's `ACTIVE` reservations' `expiresAt` out to a fixed point 100 years in the future, in the same
-transaction as the status change. This takes the reservation out of reach of the TTL-based expiry
-sweep entirely - only an explicit `consume()` (payment) or `release()` (cancellation) can resolve it
-from then on. See `docs/BUSINESS_RULES.md` for why this exists and what it does *not* protect
-against.
+`fulfillmentStatus` to `CONFIRMED`, `OrdersService.updateFulfillmentStatus` calls
+`ReservationsService.pinActiveForOrderInTransaction`, which sets every one of that order's `ACTIVE`
+reservations' `expiresAt` to `NULL` ("does not expire" - an explicit lifecycle state, not a
+magic-far-future timestamp standing in for "never"), in the same transaction as the status change.
+`releaseAllExpired`'s own query (`expiresAt IS NOT NULL AND expiresAt < now()`) then simply cannot
+match a pinned reservation, by construction - no separate "is this order confirmed?" branch is
+needed inside the sweep. Only an explicit `consume()` (payment) or `release()` (cancellation) can
+resolve a pinned reservation from then on. See `docs/BUSINESS_RULES.md` for why this exists and
+what it does *not* protect against, and docs/DECISIONS.md #19 for why the far-future-date approach
+this replaced was itself a workaround rather than the intended design.

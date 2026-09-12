@@ -126,8 +126,11 @@ export class CartPricingService {
     const { variant } = item;
     const productPublished = variant.product.status === 'PUBLISHED';
     const variantActive = variant.isActive;
-    const hasStock =
-      !variant.stockItem || variant.stockItem.onHand - variant.stockItem.reserved > 0;
+    // No StockItem linked: only available if explicitly opted into
+    // unlimited stock (see docs/BUSINESS_RULES.md) - never assumed.
+    const hasStock = variant.stockItem
+      ? variant.stockItem.onHand - variant.stockItem.reserved > 0
+      : variant.isUnlimitedStock;
 
     let unavailableReason: string | undefined;
     if (!productPublished || !variantActive) {

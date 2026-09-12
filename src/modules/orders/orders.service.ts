@@ -58,17 +58,6 @@ const PAYMENT_TRANSITIONS: Record<PaymentStatus, PaymentStatus[]> = {
   [PaymentStatus.REFUNDED]: [],
 };
 
-// Used to take a reservation out of reach of the TTL-based expiry sweep
-// once its order is CONFIRMED - see updateFulfillmentStatus. A fixed
-// far-future date rather than `null`/no-expiry keeps `expiresAt` a plain
-// required column (simpler schema, no special-case query branch for
-// "does this reservation expire at all").
-function PINNED_RESERVATION_EXPIRY(): Date {
-  const pinned = new Date();
-  pinned.setFullYear(pinned.getFullYear() + 100);
-  return pinned;
-}
-
 @Injectable()
 export class OrdersService {
   constructor(
@@ -361,16 +350,11 @@ export class OrdersService {
         // Once staff have confirmed an order, its stock hold must survive
         // regardless of how long payment takes - the original checkout
         // TTL was only ever meant to protect against an abandoned,
-        // never-confirmed cart. Pinning expiresAt far into the future
-        // takes these reservations out of reach of the TTL-based expiry
-        // sweep entirely; only an explicit consume() (payment) or
-        // release() (cancellation) can resolve them from here on. See
+        // never-confirmed cart. See
+        // ReservationsService.pinActiveForOrderInTransaction and
         // docs/BUSINESS_RULES.md "Do not allow a confirmed order to lose
         // its stock through an unrelated timeout".
-        await tx.stockReservation.updateMany({
-          where: { orderId, status: ReservationStatus.ACTIVE },
-          data: { expiresAt: PINNED_RESERVATION_EXPIRY() },
-        });
+        await this.reservationsService.pinActiveForOrderInTransaction(tx, orderId);
       }
 
       if (targetStatus === FulfillmentStatus.CANCELLED) {

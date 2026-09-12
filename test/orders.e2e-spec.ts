@@ -31,6 +31,11 @@ describe('Orders (e2e)', () => {
     });
   }
 
+  // When no stockItemId is given, isUnlimitedStock: true is the explicit
+  // opt-in that makes the variant purchasable at all (see
+  // docs/BUSINESS_RULES.md) - these order tests are about checkout/order
+  // mechanics, not the stock-tracking feature itself (which has its own
+  // dedicated tests in inventory-availability.e2e-spec.ts).
   async function seedPublishedVariant(price = 10000, stockItemId?: string) {
     const product = await prisma.product.create({
       data: {
@@ -46,6 +51,7 @@ describe('Orders (e2e)', () => {
         sku: `SPACE-${Date.now()}-${Math.random()}`,
         price,
         stockItemId,
+        isUnlimitedStock: !stockItemId,
       },
     });
     return { product, variant };
@@ -651,14 +657,14 @@ describe('Orders (e2e)', () => {
         .send({ status: 'CONFIRMED' })
         .expect(200);
 
-      // Confirming must have pinned the reservation's expiresAt far into
-      // the future, taking it out of reach of the TTL-based expiry sweep -
-      // this is the actual mechanism that protects a confirmed order's
-      // stock from an unrelated checkout-abandonment timeout.
+      // Confirming must have pinned the reservation to "never expires"
+      // (expiresAt: null, not a far-future date) - this is the actual
+      // mechanism that protects a confirmed order's stock from an
+      // unrelated checkout-abandonment timeout.
       const reservation = await prisma.stockReservation.findFirstOrThrow({
         where: { orderId: order.id },
       });
-      expect(reservation.expiresAt.getFullYear()).toBeGreaterThan(new Date().getFullYear() + 50);
+      expect(reservation.expiresAt).toBeNull();
       expect(reservation.status).toBe('ACTIVE');
 
       const expiryService = app.get(OrderExpiryService);

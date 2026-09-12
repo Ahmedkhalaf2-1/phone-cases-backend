@@ -29,11 +29,16 @@ describe('Checkout quote (e2e)', () => {
     });
   }
 
+  // isUnlimitedStock: true - the explicit opt-in a stockless variant needs
+  // to be purchasable (see docs/BUSINESS_RULES.md); these tests are about
+  // checkout math, not the stock-tracking feature itself.
   async function seedPublishedVariant(price = 10000) {
     const product = await prisma.product.create({
       data: { slug: 'space', nameEn: 'Space', nameAr: 'الفضاء', status: 'PUBLISHED' },
     });
-    return prisma.productVariant.create({ data: { productId: product.id, sku: 'SPACE-1', price } });
+    return prisma.productVariant.create({
+      data: { productId: product.id, sku: 'SPACE-1', price, isUnlimitedStock: true },
+    });
   }
 
   async function createCartWithItem(variantId: string, quantity = 1) {

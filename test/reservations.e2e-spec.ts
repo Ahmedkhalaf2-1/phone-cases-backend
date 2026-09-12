@@ -174,6 +174,53 @@ describe('ReservationsService (e2e)', () => {
     expect(updated.reserved).toBe(5);
   });
 
+  it('pinActiveForOrderInTransaction sets expiresAt to null, taking the reservation out of releaseAllExpired reach', async () => {
+    const stockItem = await createStockItem(10);
+    const order = await prisma.order.create({
+      data: {
+        trackingToken: `track-${Date.now()}-${Math.random()}`,
+        idempotencyKey: `idem-${Date.now()}-${Math.random()}`,
+        idempotencyRequestHash: 'hash',
+        currency: 'EGP',
+        subtotal: 1000,
+        discountTotal: 0,
+        shippingTotal: 0,
+        total: 1000,
+        shippingRateNameEn: 'Standard',
+        customerFullName: 'Test',
+        customerPhone: '01012345678',
+        shippingCountry: 'EG',
+        shippingCity: 'Cairo',
+        shippingAddressLine1: 'Test St',
+      },
+    });
+    // A reservation whose TTL already elapsed - proves pinning overrides
+    // an existing expiry, not just a freshly-created one.
+    const reservation = await reservations.reserve({
+      stockItemId: stockItem.id,
+      quantity: 2,
+      orderId: order.id,
+      ttlMinutes: -1,
+    });
+
+    await prisma.$transaction((tx) => reservations.pinActiveForOrderInTransaction(tx, order.id));
+
+    const pinned = await prisma.stockReservation.findUniqueOrThrow({
+      where: { id: reservation.id },
+    });
+    expect(pinned.expiresAt).toBeNull();
+    expect(pinned.status).toBe(ReservationStatus.ACTIVE);
+
+    const released = await reservations.releaseAllExpired();
+    expect(released).toHaveLength(0);
+    const stillActive = await prisma.stockReservation.findUniqueOrThrow({
+      where: { id: reservation.id },
+    });
+    expect(stillActive.status).toBe(ReservationStatus.ACTIVE);
+    const stock = await prisma.stockItem.findUniqueOrThrow({ where: { id: stockItem.id } });
+    expect(stock.reserved).toBe(2);
+  });
+
   it('never lets reserved exceed onHand under concurrent reservation attempts', async () => {
     const stockItem = await createStockItem(5);
 

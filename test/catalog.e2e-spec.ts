@@ -98,6 +98,11 @@ describe('Catalog (e2e)', () => {
           phoneModelId: model15.id,
           caseTypeId: shockCase.id,
           price: 45000,
+          // No stockItemId here - isUnlimitedStock is the explicit opt-in
+          // required for this variant to show as available (see
+          // docs/BUSINESS_RULES.md); this test is about pricing/
+          // compatibility exposure, not the stock-tracking feature itself.
+          isUnlimitedStock: true,
         })
         .expect(201);
 

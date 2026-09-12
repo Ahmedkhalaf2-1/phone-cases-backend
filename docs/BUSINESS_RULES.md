@@ -51,14 +51,32 @@ deleting historical data.
 
 ```
 isAvailable = variant.isActive
-              AND (variant.stockItem is null
-                   OR variant.stockItem.onHand - variant.stockItem.reserved > 0)
+              AND (
+                variant.stockItem is not null
+                  ? variant.stockItem.onHand - variant.stockItem.reserved > 0
+                  : variant.isUnlimitedStock
+              )
 ```
 
-A variant with no linked `StockItem` is treated as always available (not stock-tracked). This
-formula is now shared by both the public catalog (`ProductsService`/`product-response.mapper.ts`)
-and the cart pricing engine (`CartPricingService`) - `reserved` is a real, actively-maintained
-counter as of Phase 2 (see `docs/DATA_MODEL.md` §4), not just a placeholder column anymore.
+A variant with no linked `StockItem` is available **only if** a staff member explicitly set
+`isUnlimitedStock: true` on it - never assumed just because `stockItemId` is absent. This is a
+deliberate correctness requirement, not the original MVP shortcut: an earlier version of this rule
+treated "no `StockItem`" as "always available," which silently granted unlimited availability to
+any variant staff simply hadn't linked stock to yet. `isUnlimitedStock` defaults to `false`, so a
+newly created stockless variant is unavailable until deliberately opted in
+(`POST/PATCH .../variants` with `isUnlimitedStock: true`) - see docs/DECISIONS.md.
+
+This exact formula is enforced independently in three places that must all agree:
+`ProductsService`/`product-response.mapper.ts` (public catalog), `CartPricingService` (cart/
+checkout pricing and the `isAvailable` flag order creation checks), and
+`CartService.assertSoftAvailability` (the functional gate on adding/updating/replacing a cart line
+- this one previously had its own, separate "no StockItem → always allow" bypass that did not even
+consult `isUnlimitedStock`; fixed alongside the other two). `reserved` is a real,
+actively-maintained counter as of Phase 2 (see `docs/DATA_MODEL.md` §4).
+
+`VariantsService` additionally rejects (`400`) setting `isUnlimitedStock: true` at the same time as
+`stockItemId` - the two are mutually exclusive ways of being available with no ambiguity about
+which one governs.
 
 ## 5. Stock adjustment
 
@@ -341,10 +359,12 @@ A `@nestjs/schedule` `@Interval(60_000)` job (`OrderExpiryScheduler`, disabled u
    defensively by the UPDATE's own `WHERE status = 'ACTIVE'` guard).
 2. For every distinct order that had a reservation just released, `OrdersService.cancelDueToExpiry`
    is called - but it only actually cancels an order that is *still* `PENDING`/`UNPAID`. An order
-   that was `CONFIRMED` (§20) never has an `ACTIVE` reservation with a past `expiresAt` in the first
-   place, because confirming pinned it 100 years out - so this is a second, independent line of
-   defense, not the only one, against a confirmed/paid order ever losing its stock or status to an
-   unrelated abandoned-cart timeout.
+   that was `CONFIRMED` (§20) never has an `ACTIVE` reservation matching `releaseAllExpired`'s query
+   in the first place: confirming sets its reservation(s)' `expiresAt` to `NULL` ("does not expire"
+   - see `docs/DATA_MODEL.md` §10), and the sweep's own filter (`expiresAt IS NOT NULL AND expiresAt
+   < now()`) cannot match `NULL` by construction. `cancelDueToExpiry`'s own status re-check is still
+   a second, independent line of defense, not the only one, against a confirmed/paid order ever
+   losing its stock or status to an unrelated abandoned-cart timeout.
 3. **Recovery after downtime requires no special handling.** Expiry is judged purely from the
    `expiresAt` timestamp already in the database, never an in-memory timer - if the process was down
    when a reservation's TTL passed, the very next tick (or a manual trigger,
@@ -373,3 +393,14 @@ No payment provider is selected or integrated - see docs/DECISIONS.md. `PAYMENT_
   docs/DECISIONS.md for the exact list of business decisions needed before it can be built.
 - **Real payment provider integration** (webhooks, redirects, refund processing) - no provider is
   selected; see §22 and docs/DECISIONS.md.
+
+## 24. Sensitive credentials never appear in server logs
+
+Guest order tracking (`GET /orders/track/:trackingToken`, §18) authenticates purely by the token in
+the URL path - so the request URL itself is a credential and must never be written to a server log
+verbatim, or anyone with log read access could use it to look up (and, since tracking returns full
+order/address/phone details, read) that guest's order. `src/common/utils/log-redaction.util.ts`
+replaces this segment with `[REDACTED]` before `LoggingInterceptor` (every request, success or
+error) or `AllExceptionsFilter` (5xx errors) writes a log line - see docs/DECISIONS.md. The JSON
+error response's own `path` field is deliberately left un-redacted: it only ever echoes the
+request back to the same caller who sent it, which is not a log.

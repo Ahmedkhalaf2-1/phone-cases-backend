@@ -8,6 +8,31 @@ docs/DECISIONS.md #23). Real payment provider integration remains out of scope p
 decision (docs/DECISIONS.md #22); the order pipeline itself is complete and tested independent of
 that decision.
 
+## Phase 4 — targeted verification pass (4 real gaps found and fixed)
+
+A follow-up review verified four specific requirements directly against the running code rather
+than trusting documentation or the existing test count. All four had a real, confirmed gap:
+
+1. **Reservation expiry lifecycle** - the "100 years in the future" pinning value was a workaround,
+   not an explicit lifecycle state. Replaced with `expiresAt: NULL` ("does not expire") - a real
+   schema change (`StockReservation.expiresAt` is now nullable), not a renamed constant.
+2. **Unlimited stock was implicit, not an explicit administrative choice** - a variant with no
+   `StockItem` was silently treated as always available in three separate places (public catalog,
+   cart pricing, and - the functional gate that actually let unlimited quantities into a cart -
+   `CartService.assertSoftAvailability`, which is worse than the display-only bugs since it had no
+   limit at all). Added `ProductVariant.isUnlimitedStock` (`@default(false)`, migration preserves
+   all existing data, no row silently reclassified as unlimited) and fixed all three call sites.
+3. **Order-creation reconfirmation on a changed quote** - checked and confirmed already correct
+   (`PRICE_CHANGED`, `docs/BUSINESS_RULES.md` §18); no change needed.
+4. **Guest tracking tokens were being written to server logs** - via the raw request URL, on every
+   single tracking request (success or error). Fixed with an explicit URL-redaction utility, wired
+   into both the request logger and the exception filter.
+
+See `docs/DECISIONS.md` #25-28 for the full detail on each (what was found, how it was fixed, and
+exactly how each fix was verified - unit tests, e2e tests, and live checks against a running
+instance for the two most safety-critical items). Migration:
+`20260912044837_phase4_explicit_stock_and_reservation_lifecycle`.
+
 ## Phase 3 — Orders — what's done
 
 - **Shipping**: `ShippingZone`/`ShippingRate` admin CRUD, public rate lookup by country, a pure

@@ -285,7 +285,16 @@ model StockReservation {
   quantity Int
   status   ReservationStatus @default(ACTIVE)
 
-  expiresAt  DateTime
+  // NULL means "does not expire" - the explicit, permanent state a
+  // reservation enters when its order is CONFIRMED (see
+  // OrdersService.updateFulfillmentStatus /
+  // ReservationsService.pinActiveForOrderInTransaction), taking it out of
+  // reach of the TTL expiry sweep (`releaseAllExpired`, which filters
+  // `expiresAt IS NOT NULL AND expiresAt < now()`) for good - not a
+  // magic-far-future timestamp standing in for "never". Only an explicit
+  // consume() (payment) or release() (cancellation) can resolve a pinned
+  // reservation from that point on. See docs/BUSINESS_RULES.md.
+  expiresAt  DateTime?
   releasedAt DateTime?
   consumedAt DateTime?
 
@@ -434,18 +443,25 @@ model ProductVariant {
 
   isActive Boolean @default(true)
 
-  // CONFIRMED BUSINESS RULE (documented assumption, not a code default to
-  // "fix" later): a variant with no linked StockItem is NOT stock-limited
-  // - it is treated as always available. This is intentional so plain
-  // accessories or not-yet-tracked variants aren't blocked from selling
-  // while a decision on inventory model / accessory stock is pending. It
-  // is NOT a fallback for "we forgot to link stock" - if a variant should
-  // be limited, link a StockItem to it. Multiple variants (including
-  // variants of different Products - e.g. several print-on-demand designs
-  // on the same blank shell) MAY point at the same StockItem; there is no
-  // uniqueness constraint here on purpose - see docs/DATA_MODEL.md §4 and
-  // docs/DECISIONS.md for the full rationale and the still-unresolved
-  // finished-stock-vs-print-on-demand business decision this supports.
+  // A variant with no linked StockItem is NOT automatically available -
+  // that would be silently assuming "unlimited" for anything staff simply
+  // hasn't linked stock to yet. `isUnlimitedStock` is the explicit,
+  // auditable administrative opt-in required to sell a variant with no
+  // stock counter at all (a plain accessory, a made-to-order item). It
+  // defaults to `false`, so a newly created stockless variant is NOT
+  // purchasable until a staff member deliberately sets it - see
+  // VariantsService and docs/BUSINESS_RULES.md. When `stockItemId` IS set,
+  // this flag is meaningless (availability comes from the counter) and
+  // VariantsService rejects setting both together to avoid a confusing,
+  // self-contradictory state.
+  isUnlimitedStock Boolean @default(false)
+
+  // Multiple variants (including variants of different Products - e.g.
+  // several print-on-demand designs on the same blank shell) MAY point at
+  // the same StockItem; there is no uniqueness constraint here on purpose
+  // - see docs/DATA_MODEL.md §4 and docs/DECISIONS.md for the full
+  // rationale and the still-unresolved finished-stock-vs-print-on-demand
+  // business decision this supports.
   stockItemId String?
   stockItem   StockItem? @relation(fields: [stockItemId], references: [id], onDelete: Restrict)
 

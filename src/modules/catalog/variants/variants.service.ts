@@ -25,6 +25,7 @@ export class VariantsService {
   ): Promise<ProductVariant> {
     await this.assertProductExists(productId);
     this.assertCompareAtPriceIsValid(dto.price, dto.compareAtPrice);
+    this.assertStockConfigurationIsValid(dto.stockItemId, dto.isUnlimitedStock);
 
     try {
       const variant = await this.prisma.productVariant.create({
@@ -77,6 +78,10 @@ export class VariantsService {
         ? (existing.compareAtPrice ?? undefined)
         : dto.compareAtPrice,
     );
+    this.assertStockConfigurationIsValid(
+      dto.stockItemId === undefined ? (existing.stockItemId ?? undefined) : dto.stockItemId,
+      dto.isUnlimitedStock === undefined ? existing.isUnlimitedStock : dto.isUnlimitedStock,
+    );
 
     try {
       const variant = await this.prisma.productVariant.update({
@@ -101,6 +106,24 @@ export class VariantsService {
     if (compareAtPrice !== undefined && compareAtPrice <= price) {
       throw new BadRequestException(
         'compareAtPrice must be greater than price to represent a genuine reference price',
+      );
+    }
+  }
+
+  /**
+   * `isUnlimitedStock` only has meaning for a variant with no linked
+   * StockItem - setting both together would leave it ambiguous whether
+   * availability comes from the counter or the explicit opt-in, so it's
+   * rejected outright rather than silently picking one interpretation.
+   */
+  private assertStockConfigurationIsValid(
+    stockItemId: string | undefined,
+    isUnlimitedStock: boolean | undefined,
+  ): void {
+    if (stockItemId && isUnlimitedStock) {
+      throw new BadRequestException(
+        'isUnlimitedStock cannot be true while stockItemId is set - a variant is either tracked ' +
+          'by a StockItem or explicitly unlimited, not both',
       );
     }
   }
