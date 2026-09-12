@@ -133,18 +133,22 @@ export class CartPricingService {
       .filter((item) => item.isAvailable)
       .reduce((sum, item) => sum + item.lineSubtotal, 0);
 
-    let discountTotal = 0;
+    // Coupon validity (active, in-window, minSpend, usage limit) is
+    // decided against the full merchandise subtotal, unchanged - that is
+    // a question of "how much are you buying", not "how much discount did
+    // you already get". Whether a coupon is APPLIED AT ALL must be known
+    // before computing bundles (a bundle's allowCouponStacking policy
+    // depends on it), but the coupon's own DISCOUNT AMOUNT is computed
+    // afterwards, below, against what bundle discounts left eligible -
+    // see docs/BUSINESS_RULES.md and docs/DECISIONS.md for why bundles
+    // apply first and a stacking-allowed coupon only ever discounts the
+    // remaining merchandise amount.
     let couponWarning: string | undefined;
     if (cart.coupon) {
-      const error = findCouponValidityError(cart.coupon, subtotal);
-      if (error) {
-        couponWarning = error;
-      } else {
-        discountTotal = computeDiscount(cart.coupon, subtotal);
-      }
+      couponWarning = findCouponValidityError(cart.coupon, subtotal);
     }
-
     const couponIsApplied = Boolean(cart.coupon) && !couponWarning;
+
     const bundleSourceLines: BundleSourceLine[] = cart.items
       .map((item, lineIndex) => ({ item, lineIndex }))
       .filter(({ lineIndex }) => items[lineIndex].isAvailable)
@@ -174,6 +178,17 @@ export class CartPricingService {
     items.forEach((item, index) => {
       item.bundleDiscount = bundleDiscountByLine.get(index) ?? 0;
     });
+
+    // A bundle with allowCouponStacking:false already contributes ZERO to
+    // bundleDiscountTotal whenever a coupon is applied (computeBundleInstances
+    // skips it entirely in that case), so this single formula is correct
+    // for BOTH policies without a separate branch: a non-stacking bundle
+    // leaves the full subtotal eligible for the coupon (today's original
+    // behavior, preserved exactly); a stacking-allowed bundle's discount
+    // is subtracted first, and the coupon only ever discounts what's left.
+    const eligibleForCoupon = subtotal - bundleDiscountTotal;
+    const discountTotal =
+      cart.coupon && couponIsApplied ? computeDiscount(cart.coupon, eligibleForCoupon) : 0;
 
     return {
       id: cart.id,

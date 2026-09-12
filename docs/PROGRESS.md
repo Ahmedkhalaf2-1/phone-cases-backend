@@ -1,6 +1,48 @@
 # Progress
 
-## Status: Phases 1-3 complete. Phase 4 (manual payment) complete. Phase 5 (correctness hardening, CMS, bundles, refunds) complete.
+## Status: Phases 1-3 complete. Phase 4 (manual payment) complete. Phase 5 (correctness hardening, CMS, bundles, refunds) complete. Phase 5.1 (static-review follow-up) complete.
+
+## Phase 5.1 — four findings from a static review of commit `eed8ea8`
+
+All four confirmed real against the current code and fixed, with regression tests run against real
+Postgres. Full detail in docs/DECISIONS.md #45-48 and docs/BUSINESS_RULES.md §33-37.
+
+1. **Discount stacking could exceed the merchandise subtotal**, and `allocateDiscount` could
+   over-allocate a single line beyond its own subtotal (a pre-existing, unrelated bug surfaced while
+   fixing the first issue). Fixed: bundle discounts apply first, coupon computed on what's left;
+   `allocateDiscount` now distributes its flooring remainder to lines with headroom instead of
+   dumping it on the last line. Verified: `subtotal 20000, bundle 10000, 75% coupon -> total 2500`
+   exactly, per-line `lineTotal >= 0` on every created order. Tests:
+   `src/modules/orders/order-pricing.util.spec.ts`, `test/discount-stacking.e2e-spec.ts`.
+2. **Overlapping active bundles could double-claim the same physical unit.** Fixed with a
+   quantity-remaining count shared across every bundle processed in one pricing call, plus an
+   explicit, deterministic bundle-ordering (`createdAt` then `id` ascending) that was previously
+   unguaranteed by the database. Tests: `bundle-pricing.util.spec.ts`,
+   `test/discount-stacking.e2e-spec.ts`.
+3. **Order status mutations were not serialized against each other.** Payment confirmation,
+   cancellation, and expiry each validated against a pre-transaction snapshot and guarded only their
+   own column on write - concretely broken for `isUnlimitedStock` orders, which have no
+   `StockReservation` row to incidentally serialize the operations. Fixed with an explicit
+   `SELECT ... FOR UPDATE` order-row lock acquired first in every one of these transactions. Verified
+   with a `raceOrderLockedOperations` test helper that deterministically controls which operation
+   wins the lock and proves the other genuinely blocks (not just finishes fast) - 3 new scenarios in
+   `test/order-concurrency.e2e-spec.ts`, plus one pre-existing test corrected (it was asserting an
+   artifact of the bug, not real state-machine semantics).
+4. **Simultaneous identical checkout retries could fail with `CART_ALREADY_ORDERED`** instead of
+   returning the winning request's own order. Fixed by recognizing a matching cart+key+payload order
+   when the atomic cart claim is lost, and the same recovery for the InstaPay receipt
+   pre-validation race. Tests: 3 new scenarios in `test/order-concurrency.e2e-spec.ts` (COD,
+   InstaPay with a shared receipt, and same-key-different-payload).
+5. **The stock commitment check could be masked by one healthy reservation.** An order needing two
+   different stock items, where only one still had coverage, incorrectly passed confirmation/payment.
+   Fixed by aggregating required vs. covered quantity per `stockItemId` across all of an order's
+   reservations, rather than just checking "is at least one reservation still active". No migration
+   needed - `StockReservation` already had everything the check needs. Tests: 6 scenarios in the new
+   `test/stock-commitment.e2e-spec.ts`.
+
+**Verification performed:** `npx tsc --noEmit` clean; `npm run lint` clean; `npx nest build` clean;
+full e2e suite (`npx jest --config ./test/jest-e2e.json --runInBand`) - **16 suites, 178 tests, all
+passing**; full unit suite - 9 suites, 63 tests, all passing. No unrelated modules were touched.
 
 Phase 2's two previously-deferred items (shipping, atomic cart variant replacement) are done. The
 payment-provider question is resolved for **manual** payment (cash on delivery + InstaPay bank

@@ -156,4 +156,71 @@ describe('computeBundleInstances', () => {
     const result = computeBundleInstances(lines, [bundle()], { couponIsApplied: false });
     expect(result).toHaveLength(0);
   });
+
+  describe('overlapping bundles competing for the same physical units', () => {
+    it('never lets a second bundle claim a unit the first bundle already used', () => {
+      // Only ONE unit of each variant exists - two different active
+      // bundles are both eligible for the exact same pair. Before the
+      // fix, each bundle independently rebuilt its own unit pool from
+      // the raw `lines` array, so BOTH bundles could form an instance
+      // from the same physical units - double-counting a discount on
+      // merchandise that was only ever bought once.
+      const lines = [
+        line({ lineIndex: 0, variantId: 'variant-a', phoneModelId: 'model-a', unitPrice: 30000 }),
+        line({ lineIndex: 1, variantId: 'variant-b', phoneModelId: 'model-b', unitPrice: 35000 }),
+      ];
+      const bundleOne = bundle({ id: 'bundle-1', fixedTotal: 50000 });
+      const bundleTwo = bundle({ id: 'bundle-2', fixedTotal: 40000 });
+
+      const result = computeBundleInstances(lines, [bundleOne, bundleTwo], {
+        couponIsApplied: false,
+      });
+
+      expect(result).toHaveLength(1);
+      expect(result[0].bundlePromotionId).toBe('bundle-1');
+      const totalUnitsUsed = result.reduce(
+        (sum, instance) => sum + instance.unitAllocations.length,
+        0,
+      );
+      expect(totalUnitsUsed).toBe(2);
+    });
+
+    it('resolves the overlap using the order bundles were given (earliest-configured first)', () => {
+      const lines = [
+        line({ lineIndex: 0, variantId: 'variant-a', phoneModelId: 'model-a' }),
+        line({ lineIndex: 1, variantId: 'variant-b', phoneModelId: 'model-b' }),
+      ];
+      const bundleOne = bundle({ id: 'bundle-1' });
+      const bundleTwo = bundle({ id: 'bundle-2' });
+
+      const resultOneFirst = computeBundleInstances(lines, [bundleOne, bundleTwo], {
+        couponIsApplied: false,
+      });
+      expect(resultOneFirst.map((r) => r.bundlePromotionId)).toEqual(['bundle-1']);
+
+      const resultTwoFirst = computeBundleInstances(lines, [bundleTwo, bundleOne], {
+        couponIsApplied: false,
+      });
+      expect(resultTwoFirst.map((r) => r.bundlePromotionId)).toEqual(['bundle-2']);
+    });
+
+    it('lets a second bundle claim units left over after the first bundle is satisfied', () => {
+      // 2 units of each variant - bundle one (not repeatable) takes
+      // exactly one pair, leaving one unit of each free for bundle two.
+      const lines = [
+        line({ lineIndex: 0, variantId: 'variant-a', phoneModelId: 'model-a', quantity: 2 }),
+        line({ lineIndex: 1, variantId: 'variant-b', phoneModelId: 'model-b', quantity: 2 }),
+      ];
+      const bundleOne = bundle({ id: 'bundle-1', isRepeatable: false });
+      const bundleTwo = bundle({ id: 'bundle-2' });
+
+      const result = computeBundleInstances(lines, [bundleOne, bundleTwo], {
+        couponIsApplied: false,
+      });
+
+      expect(result).toHaveLength(2);
+      expect(result[0].bundlePromotionId).toBe('bundle-1');
+      expect(result[1].bundlePromotionId).toBe('bundle-2');
+    });
+  });
 });

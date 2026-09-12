@@ -709,3 +709,83 @@ gave (e.g. "restocked after inspection - unopened return"), only the audit log d
 matters for §32's "restocking must be an explicit authorized action with a stock movement and
 reason" - fixed to persist `dto.reason` onto the movement row, verified in
 `test/refunds.e2e-spec.ts`'s restocking test, which asserts the movement's own `reason` field.
+
+## Phase 5.1 — four findings from a static review of commit `eed8ea8`
+
+All four confirmed as real against the current code, not disproved. Fixed with focused regression
+tests, no unrelated modules touched.
+
+### 45. Discount stacking order, and `allocateDiscount`'s per-line over-allocation bug
+
+Confirmed present in `CartPricingService.buildView`: the coupon was computed on the raw subtotal,
+independent of the bundle discount, so `subtotal - discountTotal - bundleDiscountTotal` could go
+negative once stacking was allowed. Fixed by computing bundle discounts first and the coupon
+against `subtotal - bundleDiscountTotal` - see docs/BUSINESS_RULES.md §33 for the exact formula and
+why it needs no special case for non-stacking bundles.
+
+A SECOND, independent bug surfaced while verifying the fix couldn't go negative per LINE, not just
+in aggregate: `allocateDiscount`'s "remainder always to the last line" rule could give one line a
+discount larger than its own subtotal whenever several other lines' flooring losses accumulated onto
+it (`allocateDiscount([1, 1, 1], 2)` returned `[0, 0, 2]` - a 100%+ discount on the third line). This
+is a pre-existing bug, unrelated to bundles, that happened to never surface before because coupon
+discounts were previously always allocated across whole cart lines at their full subtotal, rarely
+producing the 3+-line, small-remainder conditions needed to trigger it. Rewritten to distribute the
+flooring remainder to whichever lines still have headroom rather than dumping it all on one line -
+proven to never exceed any line's own subtotal whenever the total discount doesn't exceed the sum of
+subtotals (which the function now also defensively caps). `OrdersService.createOrder` was also
+changed to allocate each line's coupon share against `lineSubtotal - bundleDiscount` (what's
+actually left eligible for that line), not its raw subtotal - the two fixes together are what
+guarantee every order line's `lineTotal` stays non-negative. One pre-existing test
+(`allocateDiscount([333,333,333], 10)`) asserted the OLD last-line-remainder value and was updated
+to the new (still-summing-to-10, now-safe) distribution.
+
+### 46. Cross-bundle unit reuse
+
+Confirmed present: `computeBundleInstances` looped over each active bundle independently, rebuilding
+its eligible-unit pool from the raw `lines` array every time - so two overlapping active bundles
+could each claim the same physical unit. Fixed with a `remainingQuantityByLine` count shared across
+the whole call, decremented as units are claimed - see docs/BUSINESS_RULES.md §34. Also fixed, found
+while implementing this: `BundlesService.loadActiveForPricing` had no `orderBy` at all, so the order
+bundles were evaluated in (which decides who wins a contested unit) was not actually guaranteed
+deterministic by Postgres - added `orderBy: [{ createdAt: 'asc' }, { id: 'asc' }]`.
+
+### 47. Order-row locking
+
+Confirmed present and root-caused precisely: `updateFulfillmentStatus`/`updatePaymentStatus` each
+validated against a pre-transaction read and guarded only their own column on write, so two
+concurrent operations touching DIFFERENT columns of the same order could both commit from mutually
+stale assumptions - most concretely reproducible on an `isUnlimitedStock` order, which has no
+`StockReservation` row to incidentally serialize the two operations the way a tracked-stock order's
+consume/release contention accidentally did. Fixed by adding `OrdersService.lockOrderForUpdate`
+(`SELECT ... FOR UPDATE`) as the first statement in every order-status-mutating transaction
+(`updateFulfillmentStatus`, `updatePaymentStatus`, `cancelDueToExpiry`), matching the lock-first
+pattern `RefundsService.recordRefund` already used - see docs/BUSINESS_RULES.md §35 for the exact
+before/after behavior and the one pre-existing test whose expectation changed because it was
+asserting an artifact of the bug (an arbitrary "only one request can ever succeed") rather than
+correct state-machine semantics (CONFIRMED -> CANCELLED is a real, valid sequence).
+
+**Verified with controlled synchronization, not `Promise.all`:** `test/order-concurrency.e2e-spec.ts`
+adds a `raceOrderLockedOperations` test helper that spies on `lockOrderForUpdate` to deterministically
+pause the FIRST of two operations right after it acquires the real Postgres row lock, confirms the
+SECOND operation genuinely blocks (via a timeout-based "still pending" check) rather than merely
+finishing fast, then releases the first and asserts the second's outcome against the now-fresh state.
+Every other call to `lockOrderForUpdate` (the second operation's own) falls through to the real
+implementation, so the actual serialization is enforced by Postgres itself, not test-side mocking. A
+real bug in the FIRST version of this helper - constructing but never awaiting/`.then`-ing a
+supertest request left it undispatched, since supertest only actually sends the HTTP call once
+something drives its thenable, causing a genuine deadlock (the lock-acquired signal the rest of the
+helper waits on would never fire) - was found via the resulting test timeout and fixed by attaching a
+synchronous no-op `.catch()` immediately after obtaining the promise, forcing dispatch.
+
+### 48. Full stock commitment check, aggregated per stock item
+
+Confirmed present: `assertStockCommitmentNotLost` only checked "are there zero active reservations
+and none consumed" - an order requiring two different stock items where one reservation was still
+ACTIVE but the other had EXPIRED incorrectly passed, since `active.length > 0` was true. Fixed by
+aggregating `loadReservationTriage`'s reservations by `stockItemId`: required quantity is the sum of
+every reservation ever created against that stock item for the order (stable, snapshotted at
+checkout - never re-derived from a variant's current, possibly-reassigned `stockItemId`), covered
+quantity is the sum of only ACTIVE/CONSUMED ones, and the order is only intact when every required
+stock item's coverage meets its requirement. No new persisted data or migration needed -
+`StockReservation` already recorded `stockItemId` and `quantity` per row, which is all the check
+needs. See docs/BUSINESS_RULES.md §37.

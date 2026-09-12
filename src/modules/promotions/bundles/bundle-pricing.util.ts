@@ -46,16 +46,29 @@ interface Unit {
  * CartPricingService.buildView and OrdersService.createOrder, which both
  * call this instead of each re-implementing their own grouping.
  *
- * Grouping algorithm (a deliberate, documented choice - see
- * docs/DECISIONS.md): eligible units are bucketed by phoneModelId (or a
- * single bucket when requireDifferentPhoneModels is false). Each round,
+ * Grouping algorithm within one bundle (a deliberate, documented choice -
+ * see docs/DECISIONS.md): eligible units are bucketed by phoneModelId (or
+ * a single bucket when requireDifferentPhoneModels is false). Each round,
  * the two largest buckets are paired (ties broken by bucket key, then by
  * the earliest-added unit within a bucket) - the standard greedy strategy
- * for maximizing the number of pairs formed across categories, which
- * maximizes total customer savings. If a specific pairing would ever
- * discount to a negative amount (fixedTotal + surcharges exceeding the
- * two units' normal price - a misconfiguration), bundling for that
- * promotion stops entirely rather than ever increasing the payable total.
+ * for maximizing the number of pairs formed across categories WITHIN that
+ * one bundle. If a specific pairing would ever discount to a negative
+ * amount (fixedTotal + surcharges exceeding the two units' normal price -
+ * a misconfiguration), bundling for that promotion stops entirely rather
+ * than ever increasing the payable total.
+ *
+ * Ordering ACROSS bundles when several are active and eligible for the
+ * same physical units (a deliberate, documented choice, NOT a claim of
+ * globally maximal savings - see docs/DECISIONS.md): bundles are
+ * processed strictly in the order given in `bundles` (the caller -
+ * BundlesService.loadActiveForPricing - orders them by `createdAt` then
+ * `id` ascending, so the earliest-configured active bundle gets first
+ * claim). A running `remainingQuantityByLine` count, shared across every
+ * bundle processed in this call, is decremented every time a unit is
+ * consumed by an instance - so a later bundle in the list only ever sees
+ * the units earlier bundles left unclaimed. This guarantees one physical
+ * unit can belong to at most one bundle instance across ALL applied
+ * promotions, never more.
  */
 export function computeBundleInstances(
   lines: BundleSourceLine[],
@@ -63,6 +76,9 @@ export function computeBundleInstances(
   options: { couponIsApplied: boolean },
 ): BundleInstanceResult[] {
   const results: BundleInstanceResult[] = [];
+  const remainingQuantityByLine = new Map<number, number>(
+    lines.map((line) => [line.lineIndex, line.quantity]),
+  );
 
   for (const bundle of bundles) {
     if (options.couponIsApplied && !bundle.allowCouponStacking) {
@@ -79,7 +95,8 @@ export function computeBundleInstances(
     const units: Unit[] = [];
     for (const line of eligibleLines) {
       const surcharge = bundle.eligibleVariants.get(line.variantId) ?? 0;
-      for (let i = 0; i < line.quantity; i += 1) {
+      const remaining = remainingQuantityByLine.get(line.lineIndex) ?? 0;
+      for (let i = 0; i < remaining; i += 1) {
         units.push({
           lineIndex: line.lineIndex,
           phoneModelId: line.phoneModelId,
@@ -147,6 +164,19 @@ export function computeBundleInstances(
         buckets.set(keyA, buckets.get(keyA)!.slice(1));
         buckets.set(keyB, buckets.get(keyB)!.slice(1));
       }
+
+      // Claim these two units globally, across every bundle this call
+      // processes - the next bundle in `bundles` (if any) must never see
+      // them as still available, even though they remain untouched in
+      // `lines` itself.
+      remainingQuantityByLine.set(
+        unitA.lineIndex,
+        (remainingQuantityByLine.get(unitA.lineIndex) ?? 0) - 1,
+      );
+      remainingQuantityByLine.set(
+        unitB.lineIndex,
+        (remainingQuantityByLine.get(unitB.lineIndex) ?? 0) - 1,
+      );
 
       const [discountA, discountB] = allocateDiscount([unitA.price, unitB.price], discountAmount);
       results.push({

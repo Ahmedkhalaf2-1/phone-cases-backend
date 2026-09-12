@@ -672,3 +672,116 @@ refund record documents that money was already sent back to a customer through s
   and its own `reason` (now correctly persisted onto the `StockMovement` row itself, not just the
   audit log - see docs/DECISIONS.md #44) - so a printed, customer-returned case is never silently
   treated as an unused shared blank.
+
+## 33. Bundle discounts apply first; a stacking-allowed coupon only discounts what's left
+
+A follow-up review of §31's stacking policy found two real gaps, both fixed:
+
+- **Combined discounts could exceed the merchandise subtotal.** The coupon used to be computed on
+  the full subtotal, then subtracted from the total separately from the bundle discount - if both
+  applied, their sum could exceed what was actually being bought, driving the payable total (and
+  potentially individual line totals) negative. Fixed: bundle discounts are computed first;
+  `discountTotal` is then computed against `subtotal - bundleDiscountTotal`, never the raw
+  subtotal. A bundle that disallows stacking is unaffected - it already contributed `0` to
+  `bundleDiscountTotal` whenever a coupon is applied (§31), so this is one formula that is
+  correct for both policies, not a special case.
+- **`allocateDiscount` itself could over-allocate a single line.** Its old "dump the flooring
+  remainder on the last line" rule could give one line a discount larger than its own subtotal
+  (e.g. `allocateDiscount([1, 1, 1], 2)` returned `[0, 0, 2]`). It now distributes the remainder one
+  minor unit at a time to whichever lines still have headroom, so no single line's allocation can
+  ever exceed its own eligible amount. `OrdersService.createOrder` also now allocates each line's
+  coupon share against that line's amount REMAINING after its own bundle discount, not its raw
+  subtotal - together these guarantee every order line's `lineTotal` stays non-negative, not just
+  the order-level total. See docs/DECISIONS.md.
+
+## 34. A physical unit can belong to at most one bundle instance, across ALL active bundles
+
+**Confirmed present:** `computeBundleInstances` rebuilt each bundle's eligible-unit pool
+independently from the raw cart/order lines, so two different active bundles both eligible for the
+same variant could each form an instance from the SAME physical units - double-discounting
+merchandise that was only ever bought once. Fixed: a running "remaining quantity per line" count is
+shared across every bundle processed in one call, decremented whenever a unit is claimed by an
+instance, so a later bundle only ever sees what earlier bundles left unclaimed.
+
+Overlaps are resolved by processing bundles in a fixed, explicit order - **not** a claim of maximal
+total savings across bundles (only the greedy pairing *within* one bundle is locally optimal for
+that bundle). `BundlesService` now orders active bundles by `createdAt` then `id` ascending, so the
+earliest-configured bundle gets first claim on a contested unit - a deterministic, staff-legible
+tie-break, not an accident of query order (Postgres makes no ordering guarantee without an explicit
+`ORDER BY`).
+
+## 35. Order-row locking serializes confirmation, cancellation, payment, and expiry
+
+**Confirmed present:** `updateFulfillmentStatus` and `updatePaymentStatus` each read the order and
+validated it BEFORE opening a transaction, then guarded only their OWN column
+(`fulfillmentStatus`/`paymentStatus`) in the final write. Two concurrent operations on the same
+order that each change a DIFFERENT column could therefore both "win" against a stale
+pre-transaction read of the OTHER column - e.g. an order could end up simultaneously CANCELLED and
+PAID, since neither guard actually depended on the other's outcome. This was masked for
+tracked-stock orders, where consuming/releasing the same `StockReservation` row provided incidental
+row-locking - but **`isUnlimitedStock` orders have no reservation row at all**, so nothing serialized
+them.
+
+Fixed: every operation that can change `fulfillmentStatus`/`paymentStatus` (confirm, cancel, mark
+paid, expire) now starts by acquiring a `SELECT ... FOR UPDATE` lock on the order row
+(`OrdersService.lockOrderForUpdate`) BEFORE reading or validating anything else about it - the same
+lock-first pattern `RefundsService.recordRefund` already used (§32), now applied consistently
+everywhere. Two concurrent operations on the same order fully serialize: whichever acquires the
+lock first runs to completion; the other blocks on Postgres's real row lock until the first commits
+or rolls back, then re-validates against the now-fresh state. Concretely:
+
+- A payment confirmation that arrives after a cancellation has already committed now correctly sees
+  `fulfillmentStatus: CANCELLED` and is refused (`INVALID_STATE_TRANSITION`) - it can never "win"
+  against a cancellation just because it started before that cancellation committed.
+- A cancellation that arrives after payment has already committed still succeeds (cancelling a PAID
+  order's fulfillment remains a legitimate, documented action - §20) but reads the FRESH
+  `paymentStatus: PAID` and correctly does NOT release coupon usage, never from a stale UNPAID
+  snapshot.
+- Confirming an order whose reservation expired via a concurrent sweep, and the sweep itself racing
+  a concurrent confirmation, both resolve the same way regardless of tracked vs. unlimited stock.
+- The old guarded-`updateMany`-with-stale-value pattern is kept as a defensive, belt-and-suspenders
+  check on the final write (it should never actually fire once every writer locks first), not
+  removed outright, to avoid widening this fix's surface unnecessarily.
+
+One existing test (`confirmation vs cancellation cannot contradict each other`) asserted that
+exactly one of a concurrent CONFIRMED-vs-CANCELLED pair must fail - but CANCELLED is a legitimately
+valid transition FROM CONFIRMED (§20), so once genuinely serialized, CONFIRMED-then-CANCELLED
+correctly lets BOTH succeed (a real, valid sequence), while CANCELLED-then-CONFIRMED correctly
+refuses the second (CANCELLED has no outgoing transitions). The test was updated to assert both
+orderings deterministically instead of one non-deterministic race outcome. See docs/DECISIONS.md.
+
+## 36. Simultaneous identical checkout retries return the same order
+
+**Confirmed present:** two requests for the same cart, idempotency key, and payload, arriving
+close enough together that BOTH miss the initial idempotency lookup (neither has committed yet),
+would both proceed to claim the cart - only one wins the atomic `ACTIVE -> ORDERED` claim, and the
+loser used to receive `409 CART_ALREADY_ORDERED` instead of the winner's order, even though it was
+genuinely the same request. Fixed: when the cart claim fails, `OrdersService.createOrder` now checks
+whether the order that DID claim the cart (there is at most one - `Order.cartId` is unique) matches
+this request's own idempotency key AND payload hash; if so, it returns that order instead of
+rejecting it. A key match with a DIFFERENT payload hash still correctly returns
+`409 IDEMPOTENCY_KEY_REUSED`; a claim by a genuinely different key still correctly returns
+`409 CART_ALREADY_ORDERED`.
+
+A related, narrower gap: the InstaPay receipt pre-validation (a fast, non-authoritative check before
+the transaction opens) could see a receipt the WINNING concurrent duplicate had already attached and
+misreport `RECEIPT_ALREADY_ATTACHED` for the losing (but actually identical) retry. Fixed the same
+way: on that specific error, the request re-checks for a matching order (same cart, key, and hash)
+before treating it as fatal. See docs/DECISIONS.md.
+
+## 37. The stock commitment check now verifies the FULL requirement, aggregated per stock item
+
+**Confirmed present:** `assertStockCommitmentNotLost` rejected an order only when it had reservations
+but NONE were active and none were ever consumed - so an order needing two different stock items,
+where one reservation was still ACTIVE but the OTHER had expired, incorrectly passed (the one
+healthy reservation masked the lost one). Fixed: the check now aggregates every reservation by
+`stockItemId` - the "required" quantity for a stock item is the sum of every reservation row ever
+created against it for this order (a stable, order-time snapshot; reservations are aggregated once
+per stock item at checkout, so this is never re-derived from a variant's CURRENT stock association,
+which staff can reassign after the order was placed), and the "covered" quantity is the sum of only
+its ACTIVE/CONSUMED rows. An order is only considered intact when EVERY required stock item's
+covered quantity meets its required quantity - one healthy commitment can no longer mask another
+that isn't. Confirming/paying still fails atomically with `STOCK_RESERVATION_LOST` and no other
+state changes; unlimited-stock items and shared blank stock are unaffected (they contribute no
+reservation rows, so they never affect this aggregate). No new persisted data or migration was
+needed - `StockReservation` already carried everything required. See docs/DECISIONS.md.

@@ -271,7 +271,13 @@ alone — see docs/BUSINESS_RULES.md §25-26.
 - `GET /api/v1/cart/receipts/:receiptId/file` — streams the image (`Content-Type` set, `Cache-
   Control: private, no-store`). `404` if the receipt doesn't belong to this cart.
 
-## Admin orders (Phase 3, extended in Phase 4)
+## Admin orders (Phase 3, extended in Phase 4/5)
+
+No request/response shape changed in Phase 5.1 - the fulfillment/payment-status endpoints below now
+additionally lock the order row before validating, so two concurrent requests on the same order
+fully serialize instead of racing (see docs/BUSINESS_RULES.md §35); `STOCK_RESERVATION_LOST` now
+also catches a partially-lost commitment across multiple required stock items, not only a fully-lost
+one (§37).
 
 - `GET /api/v1/admin/orders?fulfillmentStatus=&paymentStatus=&page=&pageSize=` —
   `OWNER_ADMIN`/`ORDER_OPERATOR`. Paginated, full order + snapshot detail, including `receipts`.

@@ -130,7 +130,31 @@ export class OrdersService {
     // authoritative recheck is attachToOrderInTransaction's own
     // conditional UPDATE, done fresh inside the transaction below.
     if (dto.paymentMethod === OrderPaymentMethod.INSTAPAY_MANUAL && dto.receiptId) {
-      await this.receiptsService.findOwnedUnattachedOrThrow(cartId, dto.receiptId);
+      try {
+        await this.receiptsService.findOwnedUnattachedOrThrow(cartId, dto.receiptId);
+      } catch (error) {
+        // A concurrent, byte-for-byte identical retry (same cart, same
+        // idempotency key, same payload, including this same receiptId)
+        // may have already committed in the gap since the initial
+        // idempotencyKey lookup above - its order creation would have
+        // attached this exact receipt, which this fast pre-check would
+        // otherwise misreport as RECEIPT_ALREADY_ATTACHED instead of
+        // recognizing it as this request's own already-completed result.
+        if (error instanceof AppException && error.code === 'RECEIPT_ALREADY_ATTACHED') {
+          const existingOrder = await this.prisma.order.findUnique({
+            where: { cartId },
+            include: ORDER_INCLUDE,
+          });
+          if (
+            existingOrder &&
+            existingOrder.idempotencyKey === idempotencyKey &&
+            existingOrder.idempotencyRequestHash === requestHash
+          ) {
+            return existingOrder;
+          }
+        }
+        throw error;
+      }
     }
 
     const normalizedPhone = normalizePhoneNumber(dto.customerPhone, dto.shippingCountry);
@@ -167,6 +191,33 @@ export class OrdersService {
           if (!existingCart) {
             throw new ResourceNotFoundException('Cart', cartId);
           }
+
+          // The cart may have lost this race to a SIMULTANEOUS retry of
+          // this exact request (same cart, same idempotency key, same
+          // payload) rather than a genuinely different checkout attempt.
+          // Postgres's row lock on the cart guarantees the transaction
+          // that actually won the claim above has FULLY COMMITTED by the
+          // time our own conditional UPDATE's WHERE clause could stop
+          // matching - so if it was truly our own retry, its order is
+          // already visible here (Order.cartId is unique, so there is at
+          // most one). Returning it instead of CART_ALREADY_ORDERED is
+          // what makes concurrent identical retries idempotent, not just
+          // sequential ones - see docs/BUSINESS_RULES.md.
+          const existingOrderForCart = await tx.order.findUnique({
+            where: { cartId },
+            include: ORDER_INCLUDE,
+          });
+          if (existingOrderForCart && existingOrderForCart.idempotencyKey === idempotencyKey) {
+            if (existingOrderForCart.idempotencyRequestHash === requestHash) {
+              return existingOrderForCart;
+            }
+            throw new AppException(
+              'IDEMPOTENCY_KEY_REUSED',
+              'This idempotency key is already in use',
+              HttpStatus.CONFLICT,
+            );
+          }
+
           throw new AppException(
             'CART_ALREADY_ORDERED',
             'This cart is no longer active - it may already have been converted to an order',
@@ -316,7 +367,21 @@ export class OrdersService {
         });
 
         const draftSubtotals = drafts.map((draft) => draft.item.variant.price * draft.quantity);
-        const draftCouponDiscounts = allocateDiscount(draftSubtotals, priced.discountTotal);
+        // Allocated against each draft's REMAINING amount after its own
+        // bundle discount, not its raw subtotal - otherwise a heavily
+        // bundle-discounted line could receive a further, proportional-
+        // to-full-price coupon share that pushes its own lineTotal
+        // negative even though the cart-level total stays non-negative.
+        // Since allocateDiscount never lets any single allocation exceed
+        // the corresponding input, and priced.discountTotal was itself
+        // computed against subtotal - bundleDiscountTotal (see
+        // CartPricingService.buildView), this guarantees
+        // couponDiscount[i] + bundleDiscount[i] <= draftSubtotals[i] for
+        // every line - see docs/BUSINESS_RULES.md and docs/DECISIONS.md.
+        const draftEligibleForCoupon = drafts.map(
+          (draft, index) => draftSubtotals[index] - draft.bundleDiscount,
+        );
+        const draftCouponDiscounts = allocateDiscount(draftEligibleForCoupon, priced.discountTotal);
 
         const stockLines = availableCartItems
           .filter((item) => item.variant.stockItemId)
@@ -505,6 +570,38 @@ export class OrdersService {
   }
 
   /**
+   * Acquires a row-level lock on the order (`SELECT ... FOR UPDATE`) for
+   * the remainder of the enclosing transaction, BEFORE reading anything
+   * else about it, then returns the fully fresh, post-lock row. This is
+   * the single, consistent serialization point every operation that can
+   * change an order's fulfillmentStatus/paymentStatus (confirm, cancel,
+   * mark paid, expire) now acquires FIRST, before any validation - see
+   * docs/BUSINESS_RULES.md and docs/DECISIONS.md for the race this
+   * closes. Without it, two concurrent operations that each guard only
+   * their OWN column (fulfillmentStatus vs paymentStatus) in the final
+   * write can both "win" against a STALE pre-transaction read of the
+   * order, producing a contradictory combination (e.g. an order that
+   * ends up both CANCELLED and PAID) - most dangerously for
+   * isUnlimitedStock orders, which have no StockReservation row to
+   * provide any incidental locking of their own the way tracked-stock
+   * orders accidentally had. `RefundsService.recordRefund` locks the same
+   * way, so every writer of order.fulfillmentStatus/paymentStatus shares
+   * one consistent lock order: the order row first, always. Returns
+   * `null` (never throws) if the order does not exist, so callers decide
+   * how to react (a hard 404 for an admin action, a silent skip for the
+   * best-effort expiry sweep).
+   */
+  private async lockOrderForUpdate(
+    tx: Prisma.TransactionClient,
+    orderId: string,
+  ): Promise<OrderWithItems | null> {
+    await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
+      SELECT id FROM orders WHERE id = ${orderId} FOR UPDATE;
+    `);
+    return tx.order.findUnique({ where: { id: orderId }, include: ORDER_INCLUDE });
+  }
+
+  /**
    * Cancellation releases any still-ACTIVE reservation (a no-op for ones
    * already consumed/expired - see ReservationsService.releaseMany) and,
    * only if payment was never confirmed, releases the coupon's usage
@@ -513,47 +610,62 @@ export class OrdersService {
    * stock is deliberately NOT auto-restocked and its coupon usage is
    * deliberately NOT released - see docs/BUSINESS_RULES.md.
    *
-   * The final write is a conditional `updateMany` guarded on the exact
-   * `fulfillmentStatus` this call validated against above, not a plain
-   * `update` - so two concurrent requests racing to move the SAME order
-   * to two DIFFERENT target statuses (e.g. one CONFIRMING while another
-   * CANCELS) can never both apply their side effects: whichever commits
-   * first wins the guard, and the loser's whole transaction - including
-   * any reservation pin/release already run inside it - rolls back
-   * instead of silently contradicting the winner. See docs/DECISIONS.md.
+   * Every read that decides what happens here - the current status, the
+   * payment method/status cross-checks, the reservation triage - happens
+   * AFTER `lockOrderForUpdate` acquires the row lock, never from a
+   * pre-transaction snapshot. A concurrent `updatePaymentStatus` call on
+   * the same order fully serializes behind whichever of the two acquires
+   * the lock first, so it is impossible for this call and a competing
+   * payment confirmation to both apply their side effects from stale,
+   * mutually-contradictory assumptions about the order's state - see
+   * docs/DECISIONS.md for the race this closes and why the previous
+   * guarded-`updateMany`-only approach was not sufficient on its own (kept
+   * here too, now purely as a defensive belt-and-suspenders check that
+   * should never actually fire in practice).
    */
   async updateFulfillmentStatus(
     orderId: string,
     targetStatus: FulfillmentStatus,
     actor: AuthenticatedStaff,
   ): Promise<OrderWithItems> {
-    const order = await this.findByIdForAdmin(orderId);
-    if (order.fulfillmentStatus === targetStatus) {
-      return order;
-    }
-    const allowed = FULFILLMENT_TRANSITIONS[order.fulfillmentStatus] ?? [];
-    if (!allowed.includes(targetStatus)) {
-      throw new AppException(
-        'INVALID_STATE_TRANSITION',
-        `Cannot move order from ${order.fulfillmentStatus} to ${targetStatus}`,
-        HttpStatus.CONFLICT,
-      );
-    }
-    // InstaPay must be paid before it ships; COD is fulfillable regardless
-    // of payment status since payment is collected on delivery.
-    if (
-      targetStatus === FulfillmentStatus.PREPARING &&
-      order.paymentMethod === OrderPaymentMethod.INSTAPAY_MANUAL &&
-      order.paymentStatus !== PaymentStatus.PAID
-    ) {
-      throw new AppException(
-        'PAYMENT_NOT_CONFIRMED',
-        'This InstaPay order cannot move to preparation before its payment is confirmed',
-        HttpStatus.CONFLICT,
-      );
-    }
+    let previousStatus: FulfillmentStatus | undefined;
+    let isNoOp = false;
 
     const updated = await this.prisma.$transaction(async (tx) => {
+      const order = await this.lockOrderForUpdate(tx, orderId);
+      if (!order) {
+        throw new ResourceNotFoundException('Order', orderId);
+      }
+      previousStatus = order.fulfillmentStatus;
+
+      if (order.fulfillmentStatus === targetStatus) {
+        isNoOp = true;
+        return order;
+      }
+      const allowed = FULFILLMENT_TRANSITIONS[order.fulfillmentStatus] ?? [];
+      if (!allowed.includes(targetStatus)) {
+        throw new AppException(
+          'INVALID_STATE_TRANSITION',
+          `Cannot move order from ${order.fulfillmentStatus} to ${targetStatus}`,
+          HttpStatus.CONFLICT,
+        );
+      }
+      // InstaPay must be paid before it ships; COD is fulfillable
+      // regardless of payment status since payment is collected on
+      // delivery. Reads `order.paymentStatus` as locked/fresh above, so a
+      // payment confirmation that only just committed is never missed.
+      if (
+        targetStatus === FulfillmentStatus.PREPARING &&
+        order.paymentMethod === OrderPaymentMethod.INSTAPAY_MANUAL &&
+        order.paymentStatus !== PaymentStatus.PAID
+      ) {
+        throw new AppException(
+          'PAYMENT_NOT_CONFIRMED',
+          'This InstaPay order cannot move to preparation before its payment is confirmed',
+          HttpStatus.CONFLICT,
+        );
+      }
+
       let couponReleaseNeeded = false;
 
       if (targetStatus === FulfillmentStatus.CONFIRMED) {
@@ -582,6 +694,14 @@ export class OrdersService {
             activeReservations.map((r) => r.id),
           );
         }
+        // Reads the FRESH, just-locked `order.paymentStatus` - if a
+        // competing payment confirmation won the lock first and already
+        // committed PAID, this correctly sees PAID and does NOT release
+        // coupon usage for an order that is, in fact, paid - never a
+        // stale UNPAID snapshot read before this transaction acquired the
+        // lock. This is what "legitimate paid-order cancellation" and
+        // "never release paid-order coupon usage using stale unpaid
+        // state" both come down to. See docs/BUSINESS_RULES.md.
         couponReleaseNeeded = Boolean(
           order.couponId &&
           !order.couponUsageReleased &&
@@ -597,6 +717,10 @@ export class OrdersService {
         },
       });
       if (result.count === 0) {
+        // Cannot actually happen while every writer of fulfillmentStatus
+        // goes through lockOrderForUpdate first - kept as a defensive
+        // guard, not the primary protection, in case a future code path
+        // ever mutates this order without acquiring the lock.
         throw new AppException(
           'ORDER_STATE_CHANGED',
           'This order was changed by another request - reload and try again',
@@ -614,13 +738,15 @@ export class OrdersService {
       return tx.order.findUniqueOrThrow({ where: { id: orderId }, include: ORDER_INCLUDE });
     });
 
-    await this.auditLogService.record({
-      staffUserId: actor.id,
-      action: `order.fulfillment.${targetStatus.toLowerCase()}`,
-      entityType: 'Order',
-      entityId: orderId,
-      metadata: { from: order.fulfillmentStatus, to: targetStatus },
-    });
+    if (!isNoOp) {
+      await this.auditLogService.record({
+        staffUserId: actor.id,
+        action: `order.fulfillment.${targetStatus.toLowerCase()}`,
+        entityType: 'Order',
+        entityId: orderId,
+        metadata: { from: previousStatus, to: targetStatus },
+      });
+    }
 
     return updated;
   }
@@ -636,8 +762,10 @@ export class OrdersService {
    * which never had any reservation to begin with), this refuses to mark
    * it paid rather than silently accepting payment for stock the business
    * no longer actually holds - see docs/BUSINESS_RULES.md "late payment
-   * after expiration". Same conditional-`updateMany` guard as
-   * updateFulfillmentStatus for the same concurrent-request-safety reason.
+   * after expiration". Locks the order row first (`lockOrderForUpdate`),
+   * exactly like updateFulfillmentStatus/cancelDueToExpiry, so this and a
+   * concurrent cancellation/expiry on the same order fully serialize
+   * instead of racing against each other's stale pre-transaction reads.
    */
   async updatePaymentStatus(
     orderId: string,
@@ -660,34 +788,46 @@ export class OrdersService {
       );
     }
 
-    const order = await this.findByIdForAdmin(orderId);
-    if (order.paymentStatus === targetStatus) {
-      return order;
-    }
-    // A CANCELLED order (including one auto-cancelled by the expiry sweep -
-    // see cancelDueToExpiry) has already had its stock reservation released.
-    // Without this guard, marking it PAID afterwards would "succeed" with
-    // zero reservations left to consume - silently accepting payment for an
-    // order that no longer holds any stock. Fulfillment and payment status
-    // stay independent state machines everywhere else, but this one edge is
-    // deliberately cross-checked.
-    if (order.fulfillmentStatus === FulfillmentStatus.CANCELLED) {
-      throw new AppException(
-        'INVALID_STATE_TRANSITION',
-        'Cannot change payment status on a cancelled order',
-        HttpStatus.CONFLICT,
-      );
-    }
-    const allowed = PAYMENT_TRANSITIONS[order.paymentStatus] ?? [];
-    if (!allowed.includes(targetStatus)) {
-      throw new AppException(
-        'INVALID_STATE_TRANSITION',
-        `Cannot move order payment status from ${order.paymentStatus} to ${targetStatus}`,
-        HttpStatus.CONFLICT,
-      );
-    }
+    let previousStatus: PaymentStatus | undefined;
+    let isNoOp = false;
 
     const updated = await this.prisma.$transaction(async (tx) => {
+      const order = await this.lockOrderForUpdate(tx, orderId);
+      if (!order) {
+        throw new ResourceNotFoundException('Order', orderId);
+      }
+      previousStatus = order.paymentStatus;
+
+      if (order.paymentStatus === targetStatus) {
+        isNoOp = true;
+        return order;
+      }
+      // A CANCELLED order (including one auto-cancelled by the expiry
+      // sweep - see cancelDueToExpiry) has already had its stock
+      // reservation released. Without this guard, marking it PAID
+      // afterwards would "succeed" with zero reservations left to
+      // consume - silently accepting payment for an order that no longer
+      // holds any stock. Fulfillment and payment status stay independent
+      // state machines everywhere else, but this one edge is
+      // deliberately cross-checked - and, reading `order.fulfillmentStatus`
+      // fresh from the just-acquired lock, a cancellation that only just
+      // committed (by a concurrent request) is never missed here.
+      if (order.fulfillmentStatus === FulfillmentStatus.CANCELLED) {
+        throw new AppException(
+          'INVALID_STATE_TRANSITION',
+          'Cannot change payment status on a cancelled order',
+          HttpStatus.CONFLICT,
+        );
+      }
+      const allowed = PAYMENT_TRANSITIONS[order.paymentStatus] ?? [];
+      if (!allowed.includes(targetStatus)) {
+        throw new AppException(
+          'INVALID_STATE_TRANSITION',
+          `Cannot move order payment status from ${order.paymentStatus} to ${targetStatus}`,
+          HttpStatus.CONFLICT,
+        );
+      }
+
       if (targetStatus === PaymentStatus.PAID) {
         const triage = await this.loadReservationTriage(tx, orderId);
         this.assertStockCommitmentNotLost(triage, 'mark this order paid');
@@ -704,6 +844,9 @@ export class OrdersService {
         data: { paymentStatus: targetStatus },
       });
       if (result.count === 0) {
+        // Cannot actually happen while every writer of paymentStatus goes
+        // through lockOrderForUpdate first - kept as a defensive guard,
+        // not the primary protection. See updateFulfillmentStatus.
         throw new AppException(
           'ORDER_STATE_CHANGED',
           'This order was changed by another request - reload and try again',
@@ -714,13 +857,15 @@ export class OrdersService {
       return tx.order.findUniqueOrThrow({ where: { id: orderId }, include: ORDER_INCLUDE });
     });
 
-    await this.auditLogService.record({
-      staffUserId: actor.id,
-      action: `order.payment.${targetStatus.toLowerCase()}`,
-      entityType: 'Order',
-      entityId: orderId,
-      metadata: { from: order.paymentStatus, to: targetStatus },
-    });
+    if (!isNoOp) {
+      await this.auditLogService.record({
+        staffUserId: actor.id,
+        action: `order.payment.${targetStatus.toLowerCase()}`,
+        entityType: 'Order',
+        entityId: orderId,
+        metadata: { from: previousStatus, to: targetStatus },
+      });
+    }
 
     return updated;
   }
@@ -729,33 +874,76 @@ export class OrdersService {
    * Every ACTIVE/CONSUMED/other reservation for an order, triaged once so
    * callers can tell "this order never had tracked stock at all"
    * (isUnlimitedStock items only - `hasAny: false`) apart from "this
-   * order's stock commitment has disappeared" (`hasAny: true, active: [],
-   * hasConsumed: false` - expired or released with nothing ever
-   * consumed). Used by both the CONFIRMED and PAID transitions, which
-   * must refuse the latter but proceed normally for the former and for a
+   * order's stock commitment is incomplete" (`hasAny: true, fullyCovered:
+   * false`). Used by both the CONFIRMED and PAID transitions, which must
+   * refuse the latter but proceed normally for the former and for a
    * legitimately-already-consumed order (e.g. a second PAID-adjacent
    * action after stock was already consumed once).
+   *
+   * `fullyCovered` is computed by AGGREGATING every reservation row by
+   * `stockItemId`: the "required" quantity for a stock item is the sum of
+   * every reservation ever created against it for this order (a stable
+   * snapshot fixed at order-creation time - `reserveManyInTransaction`
+   * aggregates all cart lines that share a stock item into one
+   * reservation, so this is deliberately NOT re-derived from any
+   * variant's CURRENT `stockItemId`, which can be reassigned by staff
+   * after the order was placed), and the "covered" quantity is the sum of
+   * only its ACTIVE or CONSUMED reservations. An order is only
+   * `fullyCovered` when EVERY required stock item's covered quantity
+   * meets its required quantity. This is what fixes the previous "one
+   * ACTIVE reservation masks another EXPIRED one" gap: an order needing
+   * two different stock items, where only one still has coverage, used
+   * to pass because `active.length > 0` was true - it now correctly
+   * fails because the OTHER stock item's requirement is not covered. See
+   * docs/BUSINESS_RULES.md and docs/DECISIONS.md.
    */
   private async loadReservationTriage(
     tx: Prisma.TransactionClient,
     orderId: string,
-  ): Promise<{ active: string[]; hasAny: boolean; hasConsumed: boolean }> {
+  ): Promise<{ active: string[]; hasAny: boolean; hasConsumed: boolean; fullyCovered: boolean }> {
     const all = await tx.stockReservation.findMany({
       where: { orderId },
-      select: { id: true, status: true },
+      select: { id: true, status: true, stockItemId: true, quantity: true },
     });
+
+    const requiredByStockItem = new Map<string, number>();
+    const coveredByStockItem = new Map<string, number>();
+    for (const reservation of all) {
+      requiredByStockItem.set(
+        reservation.stockItemId,
+        (requiredByStockItem.get(reservation.stockItemId) ?? 0) + reservation.quantity,
+      );
+      if (
+        reservation.status === ReservationStatus.ACTIVE ||
+        reservation.status === ReservationStatus.CONSUMED
+      ) {
+        coveredByStockItem.set(
+          reservation.stockItemId,
+          (coveredByStockItem.get(reservation.stockItemId) ?? 0) + reservation.quantity,
+        );
+      }
+    }
+    let fullyCovered = true;
+    for (const [stockItemId, requiredQuantity] of requiredByStockItem) {
+      if ((coveredByStockItem.get(stockItemId) ?? 0) < requiredQuantity) {
+        fullyCovered = false;
+        break;
+      }
+    }
+
     return {
       active: all.filter((r) => r.status === ReservationStatus.ACTIVE).map((r) => r.id),
       hasAny: all.length > 0,
       hasConsumed: all.some((r) => r.status === ReservationStatus.CONSUMED),
+      fullyCovered,
     };
   }
 
   private assertStockCommitmentNotLost(
-    triage: { active: string[]; hasAny: boolean; hasConsumed: boolean },
+    triage: { hasAny: boolean; fullyCovered: boolean },
     action: string,
   ): void {
-    if (triage.hasAny && triage.active.length === 0 && !triage.hasConsumed) {
+    if (triage.hasAny && !triage.fullyCovered) {
       throw new AppException(
         'STOCK_RESERVATION_LOST',
         `Cannot ${action} - its stock reservation is no longer active (expired or released) and ` +
@@ -769,26 +957,52 @@ export class OrdersService {
    * Cancels one order because its own `reservationDeadline` passed while
    * still PENDING/UNPAID - fully self-contained and safe to call
    * repeatedly (a scheduler tick, a manual trigger, or a retry after a
-   * previous attempt failed): the guarded order-status update is what
-   * decides whether this call "wins"; reservation release and coupon-
-   * usage release only ever happen INSIDE the same transaction AFTER that
-   * guard succeeds, so a lost race can never partially apply one side
-   * effect without the other, and a subsequent call for the same order
-   * always re-evaluates fresh state rather than silently giving up. See
+   * previous attempt failed). Locks the order row first
+   * (`lockOrderForUpdate`), exactly like updateFulfillmentStatus/
+   * updatePaymentStatus, so this and a concurrent payment confirmation or
+   * manual cancellation on the same order fully serialize rather than
+   * racing on stale reads; reservation release and coupon-usage release
+   * only ever happen INSIDE the same transaction AFTER the guarded write
+   * succeeds, so a lost race can never partially apply one side effect
+   * without the other, and a subsequent call for the same order always
+   * re-evaluates fresh state rather than silently giving up. See
    * docs/DECISIONS.md for the bug this replaced (coupon usage could be
-   * decremented before confirming cancellation actually won).
+   * decremented before confirming cancellation actually won) and the
+   * later fix that made this safe against a concurrent PAID transition
+   * too, not just a concurrent cancellation.
    */
   async cancelDueToExpiry(orderId: string): Promise<boolean> {
-    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
-    if (!order) return false;
+    // Fast, non-authoritative pre-filter so the sweep (which can call
+    // this for hundreds of candidates per tick) doesn't open a
+    // transaction for an order that obviously no longer qualifies - NEVER
+    // what decides correctness; the lock + fresh read inside the
+    // transaction below is authoritative, exactly like every other
+    // mutator of order.fulfillmentStatus/paymentStatus.
+    const precheck = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: { fulfillmentStatus: true, paymentStatus: true },
+    });
+    if (!precheck) return false;
     if (
-      order.fulfillmentStatus !== FulfillmentStatus.PENDING ||
-      order.paymentStatus !== PaymentStatus.UNPAID
+      precheck.fulfillmentStatus !== FulfillmentStatus.PENDING ||
+      precheck.paymentStatus !== PaymentStatus.UNPAID
     ) {
       return false;
     }
 
     const cancelled = await this.prisma.$transaction(async (tx) => {
+      const order = await this.lockOrderForUpdate(tx, orderId);
+      if (!order) return false;
+      // Re-validated against the FRESH, just-locked row - a concurrent
+      // payment confirmation or manual cancellation that committed in the
+      // gap since the pre-check above is never missed here.
+      if (
+        order.fulfillmentStatus !== FulfillmentStatus.PENDING ||
+        order.paymentStatus !== PaymentStatus.UNPAID
+      ) {
+        return false;
+      }
+
       const result = await tx.order.updateMany({
         where: {
           id: orderId,
@@ -801,6 +1015,8 @@ export class OrdersService {
         },
       });
       if (result.count === 0) {
+        // Defensive only - cannot actually happen once the lock above has
+        // already been acquired and re-validated against fresh data.
         return false;
       }
 

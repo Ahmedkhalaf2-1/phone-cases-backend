@@ -201,6 +201,13 @@ export class BundlesService {
         ],
       },
       include: { eligibleVariants: true },
+      // Explicit and deterministic: when two or more active bundles are
+      // eligible for the same physical unit, computeBundleInstances
+      // processes them in exactly this order (earliest-configured bundle
+      // gets first claim) - without an explicit orderBy here, Postgres
+      // makes no row-order guarantee at all, which would make that
+      // "deterministic ordering" claim false. See docs/DECISIONS.md.
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     });
 
     return rows
