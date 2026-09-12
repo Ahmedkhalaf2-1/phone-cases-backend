@@ -1,0 +1,730 @@
+// Prisma schema for the phone cases ecommerce backend.
+// See docs/DATA_MODEL.md for the full rationale behind these entities.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// The connection string itself lives in prisma.config.ts (for the CLI) and
+// is passed to PrismaClient via a driver adapter at runtime (see
+// src/prisma/prisma.service.ts) - Prisma 7 no longer reads a `url` here.
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Staff, auth and audit
+// ---------------------------------------------------------------------------
+
+enum StaffRole {
+  OWNER_ADMIN
+  CATALOG_MANAGER
+  ORDER_OPERATOR
+}
+
+model StaffUser {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String
+  fullName     String
+  role         StaffRole
+  isActive     Boolean   @default(true)
+
+  refreshTokens  RefreshToken[]
+  auditLogs      AuditLog[]
+  uploadedMedia  MediaAsset[]
+  stockMovements StockMovement[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("staff_users")
+}
+
+// One row per issued refresh token so any single session can be revoked
+// without invalidating every other session for the same staff user.
+model RefreshToken {
+  id          String    @id @default(uuid())
+  staffUserId String
+  staffUser   StaffUser @relation(fields: [staffUserId], references: [id], onDelete: Cascade)
+
+  // SHA-256 hash of the token - the raw token is never persisted.
+  tokenHash         String    @unique
+  expiresAt         DateTime
+  revokedAt         DateTime?
+  replacedByTokenId String?
+
+  createdByIp String?
+  createdAt   DateTime @default(now())
+
+  @@index([staffUserId])
+  @@map("staff_refresh_tokens")
+}
+
+// Records sensitive administrative actions (catalog changes, staff
+// management, order overrides, etc). Append-only from the application's
+// point of view - nothing in this codebase updates or deletes rows here.
+model AuditLog {
+  id          String     @id @default(uuid())
+  staffUserId String?
+  staffUser   StaffUser? @relation(fields: [staffUserId], references: [id], onDelete: SetNull)
+
+  action     String // e.g. "product.publish", "staff.deactivate"
+  entityType String // e.g. "Product", "StaffUser"
+  entityId   String?
+  metadata   Json?
+  ipAddress  String?
+
+  createdAt DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([staffUserId])
+  @@map("audit_logs")
+}
+
+// ---------------------------------------------------------------------------
+// Catalog: taxonomy (phone brands/models, case types, collections)
+// ---------------------------------------------------------------------------
+
+model PhoneBrand {
+  id   String @id @default(uuid())
+  slug String @unique
+
+  nameEn String
+  nameAr String
+
+  displayOrder Int     @default(0)
+  isActive     Boolean @default(true)
+
+  models PhoneModel[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("phone_brands")
+}
+
+model PhoneModel {
+  id      String     @id @default(uuid())
+  brandId String
+  brand   PhoneBrand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  slug    String     @unique
+
+  nameEn String
+  nameAr String
+
+  releaseYear  Int?
+  displayOrder Int     @default(0)
+  isActive     Boolean @default(true)
+
+  variants ProductVariant[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([brandId])
+  @@map("phone_models")
+}
+
+model CaseType {
+  id   String @id @default(uuid())
+  slug String @unique
+
+  nameEn String
+  nameAr String
+
+  descriptionEn String?
+  descriptionAr String?
+
+  displayOrder Int     @default(0)
+  isActive     Boolean @default(true)
+
+  variants ProductVariant[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("case_types")
+}
+
+model Collection {
+  id   String @id @default(uuid())
+  slug String @unique
+
+  nameEn String
+  nameAr String
+
+  descriptionEn String?
+  descriptionAr String?
+
+  displayOrder Int     @default(0)
+  isActive     Boolean @default(true)
+
+  products ProductCollection[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("collections")
+}
+
+// ---------------------------------------------------------------------------
+// Catalog: products and variants
+// ---------------------------------------------------------------------------
+
+enum ProductStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+model Product {
+  id   String @id @default(uuid())
+  slug String @unique
+
+  nameEn String
+  nameAr String
+
+  descriptionEn String?
+  descriptionAr String?
+
+  status ProductStatus @default(DRAFT)
+
+  // Optional list-level reference price shown before a variant is chosen.
+  // The authoritative, purchasable price always comes from ProductVariant.price.
+  basePrice Int?
+  currency  String @default("EGP")
+
+  // Staff-only content, never returned by public endpoints.
+  internalNotes String?
+
+  variants    ProductVariant[]
+  collections ProductCollection[]
+  media       ProductMedia[]
+
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status])
+  @@map("products")
+}
+
+model ProductCollection {
+  productId    String
+  collectionId String
+  product      Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+
+  displayOrder Int @default(0)
+
+  @@id([productId, collectionId])
+  @@index([collectionId])
+  @@map("product_collections")
+}
+
+// Physical stock counter. Deliberately decoupled from ProductVariant so a
+// single blank stock item can later be shared by multiple print-on-demand
+// design variants, or a variant can own an exclusive stock item for
+// pre-finished stock - see docs/DECISIONS.md for the unresolved choice
+// between those two inventory models.
+//
+// `reserved` is a maintained aggregate: it always equals the sum of this
+// item's ACTIVE StockReservation rows' quantities, kept in sync by
+// InventoryService in the same atomic statement that creates/releases/
+// consumes a reservation (see src/modules/inventory/reservations). Never
+// write to it directly outside that service.
+model StockItem {
+  id  String @id @default(uuid())
+  sku String @unique
+
+  nameEn String
+  nameAr String?
+
+  onHand   Int @default(0)
+  reserved Int @default(0)
+
+  variants     ProductVariant[]
+  reservations StockReservation[]
+  movements    StockMovement[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("stock_items")
+}
+
+enum ReservationStatus {
+  ACTIVE
+  CONSUMED
+  RELEASED
+  EXPIRED
+}
+
+// A soft, time-limited hold against a StockItem's available quantity
+// (onHand - reserved), created when checkout begins (Phase 3) and either
+// consumed (payment/order confirmed - decrements onHand) or released
+// (cart abandoned, checkout failed, or the hold simply expired). See
+// docs/BUSINESS_RULES.md for the full lifecycle and docs/DECISIONS.md for
+// why cart *additions* deliberately do not create a reservation.
+model StockReservation {
+  id          String    @id @default(uuid())
+  stockItemId String
+  stockItem   StockItem @relation(fields: [stockItemId], references: [id], onDelete: Restrict)
+
+  cartId String?
+  cart   Cart?   @relation(fields: [cartId], references: [id], onDelete: SetNull)
+
+  // Set at order creation (Phase 3), replacing the cart-scoped reservation
+  // concept - see docs/DECISIONS.md. Nullable so a bare reservation created
+  // directly against a stock item (e.g. in a future non-cart flow, or in
+  // tests) remains valid without an order.
+  orderId String?
+  order   Order?  @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  quantity Int
+  status   ReservationStatus @default(ACTIVE)
+
+  expiresAt  DateTime
+  releasedAt DateTime?
+  consumedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([stockItemId, status])
+  @@index([cartId])
+  @@index([orderId])
+  @@index([status, expiresAt])
+  @@map("stock_reservations")
+}
+
+// Append-only ledger of every change to a StockItem's onHand counter
+// (manual admin adjustments, reservation consumption on order
+// confirmation, future restocks/returns). Reservations themselves are
+// tracked separately (StockReservation) since they affect `reserved`,
+// not `onHand`, until consumed.
+model StockMovement {
+  id          String    @id @default(uuid())
+  stockItemId String
+  stockItem   StockItem @relation(fields: [stockItemId], references: [id], onDelete: Restrict)
+
+  delta  Int // signed change to onHand; positive = restock, negative = consumption
+  reason String // e.g. "manual_adjustment", "reservation_consumed"
+
+  referenceType String? // e.g. "StockReservation", "Order" (Phase 3+)
+  referenceId   String?
+
+  staffUserId String?
+  staffUser   StaffUser? @relation(fields: [staffUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([stockItemId])
+  @@map("stock_movements")
+}
+
+// ---------------------------------------------------------------------------
+// Guest cart and pricing
+// ---------------------------------------------------------------------------
+
+enum CartStatus {
+  ACTIVE
+  ORDERED
+  ABANDONED
+}
+
+// A guest cart is looked up by its opaque `token`, never by `id` alone -
+// the id is a normal UUID (guessable/enumerable in principle), while the
+// token is a separate 32-byte random value that grants access. See
+// docs/DECISIONS.md for why it is stored as plaintext here (lower
+// sensitivity than a staff session) rather than hashed like RefreshToken.
+model Cart {
+  id     String     @id @default(uuid())
+  token  String     @unique
+  status CartStatus @default(ACTIVE)
+
+  currency String @default("EGP")
+
+  couponId String?
+  coupon   Coupon? @relation(fields: [couponId], references: [id], onDelete: SetNull)
+
+  items        CartItem[]
+  reservations StockReservation[]
+  order        Order?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("carts")
+}
+
+model CartItem {
+  id     String @id @default(uuid())
+  cartId String
+  cart   Cart   @relation(fields: [cartId], references: [id], onDelete: Cascade)
+
+  variantId String
+  variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Restrict)
+
+  quantity Int
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Adding an already-in-cart variant again merges quantities rather than
+  // creating a second line - see CartService.addItem.
+  @@unique([cartId, variantId])
+  @@index([variantId])
+  @@map("cart_items")
+}
+
+enum CouponType {
+  FIXED
+  PERCENTAGE
+}
+
+// Coupon validation performed while a cart is being built (CartService) is
+// explicitly provisional - see docs/BUSINESS_RULES.md. Final, atomic
+// enforcement of `usageLimit` happens at order creation (Phase 3), which
+// does not exist yet; `usageCount` here is only advisory until then.
+model Coupon {
+  id   String     @id @default(uuid())
+  code String     @unique
+  type CouponType
+
+  // Minor units for FIXED, whole percentage points (1-100) for PERCENTAGE.
+  value Int
+
+  minSpend  Int?
+  startsAt  DateTime?
+  expiresAt DateTime?
+
+  usageLimit Int?
+  usageCount Int     @default(0)
+  isActive   Boolean @default(true)
+
+  carts  Cart[]
+  orders Order[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("coupons")
+}
+
+model ProductVariant {
+  id        String  @id @default(uuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  sku String @unique
+
+  // Nullable so plain accessories (no phone/case combination) can exist
+  // without inventing placeholder taxonomy rows.
+  phoneModelId String?
+  phoneModel   PhoneModel? @relation(fields: [phoneModelId], references: [id], onDelete: Restrict)
+  caseTypeId   String?
+  caseType     CaseType?   @relation(fields: [caseTypeId], references: [id], onDelete: Restrict)
+
+  // Effective selling price in integer minor units (e.g. piastres for EGP).
+  price          Int
+  compareAtPrice Int?
+  currency       String @default("EGP")
+
+  isActive Boolean @default(true)
+
+  // CONFIRMED BUSINESS RULE (documented assumption, not a code default to
+  // "fix" later): a variant with no linked StockItem is NOT stock-limited
+  // - it is treated as always available. This is intentional so plain
+  // accessories or not-yet-tracked variants aren't blocked from selling
+  // while a decision on inventory model / accessory stock is pending. It
+  // is NOT a fallback for "we forgot to link stock" - if a variant should
+  // be limited, link a StockItem to it. Multiple variants (including
+  // variants of different Products - e.g. several print-on-demand designs
+  // on the same blank shell) MAY point at the same StockItem; there is no
+  // uniqueness constraint here on purpose - see docs/DATA_MODEL.md §4 and
+  // docs/DECISIONS.md for the full rationale and the still-unresolved
+  // finished-stock-vs-print-on-demand business decision this supports.
+  stockItemId String?
+  stockItem   StockItem? @relation(fields: [stockItemId], references: [id], onDelete: Restrict)
+
+  media      VariantMedia[]
+  cartItems  CartItem[]
+  orderItems OrderItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Prevents the same product from having two variants for the exact same
+  // phone model + case type combination. Postgres treats NULLs as distinct
+  // for uniqueness purposes, so this constraint does not restrict plain
+  // accessory variants (phoneModelId and/or caseTypeId left null) - those
+  // must be disambiguated by SKU alone for now. See docs/DATA_MODEL.md.
+  @@unique([productId, phoneModelId, caseTypeId], name: "uniq_product_model_case")
+  @@index([productId])
+  @@index([phoneModelId])
+  @@index([caseTypeId])
+  @@index([stockItemId])
+  @@map("product_variants")
+}
+
+// ---------------------------------------------------------------------------
+// Media
+// ---------------------------------------------------------------------------
+
+model MediaAsset {
+  id String @id @default(uuid())
+
+  // Storage-driver-relative key/path (local disk path or S3 object key).
+  storageKey String
+  // Fully-qualified URL clients can use to fetch the asset.
+  url        String
+
+  mimeType      String
+  fileSizeBytes Int
+  width         Int?
+  height        Int?
+
+  altTextEn String?
+  altTextAr String?
+
+  uploadedByStaffId String?
+  uploadedByStaff   StaffUser? @relation(fields: [uploadedByStaffId], references: [id], onDelete: SetNull)
+
+  productMedia ProductMedia[]
+  variantMedia VariantMedia[]
+
+  createdAt DateTime @default(now())
+
+  @@map("media_assets")
+}
+
+model ProductMedia {
+  id           String     @id @default(uuid())
+  productId    String
+  product      Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  mediaAssetId String
+  mediaAsset   MediaAsset @relation(fields: [mediaAssetId], references: [id], onDelete: Restrict)
+
+  displayOrder Int     @default(0)
+  isPrimary    Boolean @default(false)
+
+  @@unique([productId, mediaAssetId])
+  @@index([mediaAssetId])
+  @@map("product_media")
+}
+
+model VariantMedia {
+  id           String         @id @default(uuid())
+  variantId    String
+  variant      ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  mediaAssetId String
+  mediaAsset   MediaAsset     @relation(fields: [mediaAssetId], references: [id], onDelete: Restrict)
+
+  displayOrder Int     @default(0)
+  isPrimary    Boolean @default(false)
+
+  @@unique([variantId, mediaAssetId])
+  @@index([mediaAssetId])
+  @@map("variant_media")
+}
+
+// ---------------------------------------------------------------------------
+// Shipping (Phase 3)
+// ---------------------------------------------------------------------------
+
+// A geographic zone the store ships to. `countries` holds ISO 3166-1
+// alpha-2 codes (e.g. "EG"); a destination whose country matches no
+// active zone is rejected by CheckoutService as unsupported - see
+// docs/BUSINESS_RULES.md. City-level granularity is deliberately not
+// modeled yet (no requirement for it exists); add it if/when a rate needs
+// to vary within a country.
+model ShippingZone {
+  id String @id @default(uuid())
+
+  nameEn String
+  nameAr String
+
+  countries String[]
+
+  isActive     Boolean @default(true)
+  displayOrder Int     @default(0)
+
+  rates ShippingRate[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("shipping_zones")
+}
+
+model ShippingRate {
+  id     String       @id @default(uuid())
+  zoneId String
+  zone   ShippingZone @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+
+  nameEn String
+  nameAr String
+
+  // Integer minor units, like every other price in this schema. Never a
+  // real production price by default - see prisma/seed.ts and
+  // docs/DECISIONS.md for why seeded shipping prices are explicitly demo
+  // data, not a business commitment.
+  price    Int
+  currency String @default("EGP")
+
+  // When the cart's total (see docs/BUSINESS_RULES.md for the
+  // before/after-discount basis) reaches this amount, this rate's price
+  // becomes 0 in a checkout quote. Null means never free.
+  freeShippingThreshold Int?
+
+  estimatedDaysMin Int?
+  estimatedDaysMax Int?
+
+  isActive     Boolean @default(true)
+  displayOrder Int     @default(0)
+
+  orders Order[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([zoneId])
+  @@map("shipping_rates")
+}
+
+// ---------------------------------------------------------------------------
+// Orders (Phase 3)
+// ---------------------------------------------------------------------------
+
+enum FulfillmentStatus {
+  PENDING
+  CONFIRMED
+  PREPARING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+// Independent of FulfillmentStatus - see docs/BUSINESS_RULES.md for the
+// full transition tables and why they are kept separate. No payment
+// provider is integrated yet (Phase 4); PAID is currently only ever set
+// by an authorized staff member recording a manual/offline payment, never
+// by a client request or redirect.
+enum PaymentStatus {
+  UNPAID
+  PENDING
+  PAID
+  FAILED
+  PARTIALLY_REFUNDED
+  REFUNDED
+}
+
+model Order {
+  id String @id @default(uuid())
+
+  // Short, human-friendly reference for staff/customer conversations
+  // (formatted as "ORD-000123" in API responses). Not a secret - see
+  // `trackingToken` for the credential that actually grants guest access.
+  sequenceNumber Int @unique @default(autoincrement())
+
+  // Opaque credential for guest order tracking (GET /orders/track/:token).
+  // Knowing `sequenceNumber` or `id` alone grants nothing - see
+  // docs/DECISIONS.md for why this is plaintext, like Cart.token.
+  trackingToken String @unique
+
+  // Idempotency: a retry with the same key AND the same request payload
+  // (hashed) returns the original order; the same key with a different
+  // payload is rejected. See OrdersService.createOrder.
+  idempotencyKey         String @unique
+  idempotencyRequestHash String
+
+  // The cart this order was created from, so it can be marked ORDERED and
+  // a repeat checkout attempt against it can be rejected. Nullable/SetNull
+  // so deleting a cart (never done today) wouldn't break historical orders.
+  cartId String? @unique
+  cart   Cart?   @relation(fields: [cartId], references: [id], onDelete: SetNull)
+
+  fulfillmentStatus FulfillmentStatus @default(PENDING)
+  paymentStatus     PaymentStatus     @default(UNPAID)
+
+  currency      String
+  subtotal      Int
+  discountTotal Int
+  shippingTotal Int
+  total         Int
+
+  couponId            String?
+  coupon              Coupon? @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  // Snapshot of the code actually used, independent of the Coupon row
+  // still existing/being renamed later.
+  couponCode          String?
+  // Guards against releasing the same coupon's usage count twice (e.g. a
+  // cancellation retried, or racing with the expiry sweep).
+  couponUsageReleased Boolean @default(false)
+
+  shippingRateId     String?
+  shippingRate       ShippingRate? @relation(fields: [shippingRateId], references: [id], onDelete: SetNull)
+  // Snapshot - survives the rate being renamed/deleted later.
+  shippingRateNameEn String?
+  shippingRateNameAr String?
+
+  customerFullName String
+  customerEmail    String?
+  // Normalized (Western digits, no separators) - see
+  // src/common/utils/phone.util.ts and docs/BUSINESS_RULES.md.
+  customerPhone    String
+
+  shippingCountry      String
+  shippingCity         String
+  shippingAddressLine1 String
+  shippingAddressLine2 String?
+  shippingPostalCode   String?
+
+  items        OrderItem[]
+  reservations StockReservation[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([fulfillmentStatus])
+  @@index([paymentStatus])
+  @@index([sequenceNumber])
+  @@map("orders")
+}
+
+// Immutable snapshot of one purchased line - never re-read from the live
+// catalog after creation. See docs/BUSINESS_RULES.md for the discount
+// allocation rule that fills `lineDiscount`.
+model OrderItem {
+  id      String @id @default(uuid())
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  // Kept for admin convenience (e.g. "view this product's orders") but
+  // never read to recompute anything - onDelete: SetNull so a variant
+  // could theoretically be removed later without corrupting order history.
+  variantId String?
+  variant   ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+
+  productNameEn String
+  productNameAr String
+  variantSku    String
+
+  phoneModelNameEn String?
+  phoneModelNameAr String?
+  caseTypeNameEn   String?
+  caseTypeNameAr   String?
+
+  unitPrice    Int
+  quantity     Int
+  lineSubtotal Int
+  lineDiscount Int @default(0)
+  lineTotal    Int
+
+  createdAt DateTime @default(now())
+
+  @@index([orderId])
+  @@map("order_items")
+}

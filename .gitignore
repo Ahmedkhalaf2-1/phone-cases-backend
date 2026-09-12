@@ -1,0 +1,29 @@
+# compiled output
+/dist
+/node_modules
+*.tsbuildinfo
+
+# logs
+/*.log
+npm-debug.log*
+
+# env
+.env
+.env.*.local
+
+# OS
+.DS_Store
+
+# IDE
+.vscode/*
+!.vscode/extensions.json
+.idea
+
+# test
+/coverage
+
+# prisma
+prisma/*.db
+
+# uploaded media (local dev storage)
+/uploads
