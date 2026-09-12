@@ -15,6 +15,18 @@ export function toGuestOrderView(order: OrderWithItems, locale: Locale = DEFAULT
     trackingToken: order.trackingToken,
     fulfillmentStatus: order.fulfillmentStatus,
     paymentStatus: order.paymentStatus,
+    paymentMethod: order.paymentMethod,
+    // Minimal receipt status so the guest UI knows whether to prompt for a
+    // replacement screenshot (POST /cart/receipts/replace) - never the
+    // storageKey or any direct file reference; the image itself is only
+    // ever reachable through GET /cart/receipts/:id/file, which re-checks
+    // cart ownership independently of this response.
+    receipts: order.receipts.map((receipt) => ({
+      id: receipt.id,
+      status: receipt.status,
+      rejectionReason: receipt.rejectionReason,
+      createdAt: receipt.createdAt,
+    })),
     currency: order.currency,
     subtotal: order.subtotal,
     discountTotal: order.discountTotal,

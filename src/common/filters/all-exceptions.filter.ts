@@ -7,6 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
+import { MulterError } from 'multer';
 import { AppException } from '../exceptions/app.exception';
 import { redactSensitiveUrl } from '../utils/log-redaction.util';
 
@@ -24,6 +25,11 @@ const STATUS_CODE_MAP: Partial<Record<number, string>> = {
   [HttpStatus.CONFLICT]: 'CONFLICT',
   [HttpStatus.TOO_MANY_REQUESTS]: 'RATE_LIMITED',
   [HttpStatus.UNPROCESSABLE_ENTITY]: 'UNPROCESSABLE_ENTITY',
+  // NestJS's FileInterceptor already converts a MulterError with code
+  // LIMIT_FILE_SIZE into its own PayloadTooLargeException before this
+  // filter ever sees it - the MulterError branch above is a defensive
+  // fallback for any future multer usage that bypasses FileInterceptor.
+  [HttpStatus.PAYLOAD_TOO_LARGE]: 'FILE_TOO_LARGE',
 };
 
 @Catch()
@@ -59,6 +65,21 @@ export class AllExceptionsFilter implements ExceptionFilter {
   }
 
   private resolve(exception: unknown): { status: HttpStatus; body: ErrorBody } {
+    // Multer throws a plain Error subclass (never an HttpException) when a
+    // file upload violates its configured limits (e.g. FileInterceptor's
+    // `limits.fileSize` on the receipt/media upload routes) - without this,
+    // a client sending an oversized file would see an opaque 500 instead
+    // of a clear 400.
+    if (exception instanceof MulterError) {
+      return {
+        status: HttpStatus.BAD_REQUEST,
+        body: {
+          code: exception.code === 'LIMIT_FILE_SIZE' ? 'FILE_TOO_LARGE' : 'UPLOAD_ERROR',
+          message: exception.message,
+        },
+      };
+    }
+
     if (exception instanceof AppException) {
       const status: HttpStatus = exception.getStatus();
       const payload = exception.getResponse() as ErrorBody;

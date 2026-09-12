@@ -370,29 +370,45 @@ A `@nestjs/schedule` `@Interval(60_000)` job (`OrderExpiryScheduler`, disabled u
    when a reservation's TTL passed, the very next tick (or a manual trigger,
    `POST /admin/orders/sweep-expired`) picks it up exactly as if it had run on time.
 
-## 22. Payment scope (deliberately incomplete)
+## 22. Payment scope: two confirmed manual methods, no payment gateway
 
-No payment provider is selected or integrated - see docs/DECISIONS.md. `PAYMENT_METHOD` (env var,
-`none` default) gates whether `POST /orders` is reachable at all:
+No online payment gateway is integrated, and none is planned without a further decision - see
+docs/DECISIONS.md. What IS confirmed and implemented: the customer picks exactly one of two manual
+payment methods (`Order.paymentMethod`) at checkout:
 
-- `none` (the only value ever valid in production; enforced at config-validation startup) -
-  `POST /orders` returns `503`, explicitly, rather than silently accepting an order nobody could
-  ever pay for. `OrdersService.createOrder` and every other order operation are fully implemented
-  and tested regardless of this gate (see `test/orders.e2e-spec.ts`) - the gate only affects the
-  public HTTP endpoint.
-- `mock_dev_only` - a clearly-labeled, non-production simulation (refused at startup if
-  `NODE_ENV=production`) that unblocks the endpoint in dev/test so the order pipeline can be
-  exercised end-to-end without a real payment integration. There is still no code path anywhere that
-  marks an order `PAID` from an unauthenticated client request or a redirect - `PATCH
-  /admin/orders/:id/payment-status` requires staff auth (`OWNER_ADMIN`) in every environment.
+- **`CASH_ON_DELIVERY`** - no proof required at order time. Behaves exactly as orders always have:
+  `paymentStatus` starts `UNPAID`, and only an explicit `PATCH /admin/orders/:id/payment-status`
+  action ever marks it `PAID` (e.g. once the courier collects payment on delivery).
+- **`INSTAPAY_MANUAL`** - the customer transfers via InstaPay and uploads a screenshot as proof
+  (§25). `paymentStatus` also starts, and stays, `UNPAID` - uploading a screenshot **never** marks
+  anything `PAID` by itself; see §25 for exactly what changes.
+
+`PAYMENT_METHOD` (env var) still gates whether `POST /orders` is reachable at all, independent of
+which manual method the customer picks:
+
+- `none` - `POST /orders` returns `503`, explicitly, rather than silently accepting an order nobody
+  could pay for through either method.
+- `manual` - the confirmed, production-valid setting: both manual methods above are accepted, no
+  payment gateway involved.
+- `mock_dev_only` - behaves like `manual`, kept for dev/test convenience; refused at startup if
+  `NODE_ENV=production`, so a real deployment can never be left on the "simulation" name by mistake.
+
+In every case, `OrdersService.createOrder` and every other order operation are fully implemented
+and tested regardless of this gate (see `test/orders.e2e-spec.ts`) - the gate only affects the
+public HTTP endpoint. There is still no code path anywhere that marks an order `PAID` from an
+unauthenticated client request, a redirect, or the act of uploading a screenshot - `PATCH
+/admin/orders/:id/payment-status` requires staff auth (`OWNER_ADMIN`) in every environment.
 
 ## 23. Not yet implemented (do not treat as working)
 
 - **The "choose two eligible cases for a fixed total" bundle promotion**, and any coupon/bundle
   stacking policy - only a single, optional coupon per cart/order exists. Deliberately deferred; see
   docs/DECISIONS.md for the exact list of business decisions needed before it can be built.
-- **Real payment provider integration** (webhooks, redirects, refund processing) - no provider is
-  selected; see §22 and docs/DECISIONS.md.
+- **A real online payment gateway** (card processing, webhooks, automatic capture, refund
+  processing) - no provider is selected, and the two confirmed methods (§22) are both manual/
+  offline by design. See docs/DECISIONS.md.
+- **Automatic receipt verification** (OCR, amount/reference matching) - every InstaPay screenshot is
+  reviewed by a human admin; see §25.
 
 ## 24. Sensitive credentials never appear in server logs
 
@@ -404,3 +420,74 @@ replaces this segment with `[REDACTED]` before `LoggingInterceptor` (every reque
 error) or `AllExceptionsFilter` (5xx errors) writes a log line - see docs/DECISIONS.md. The JSON
 error response's own `path` field is deliberately left un-redacted: it only ever echoes the
 request back to the same caller who sent it, which is not a log.
+
+## 25. InstaPay manual payment: screenshot upload, review, and the confirmed customer flow
+
+Confirmed flow (see docs/DECISIONS.md): the customer enters their details, picks
+`CASH_ON_DELIVERY` or `INSTAPAY_MANUAL`. For InstaPay, the frontend shows transfer instructions and
+the exact server-calculated total (from `POST /checkout/quote`) *before* the customer uploads
+anything - the amount is never re-typed or client-supplied.
+
+1. **Upload before submission.** `POST /cart/receipts` (cart-token guarded, cart must be `ACTIVE`)
+   accepts one JPEG/PNG/WebP image (`RECEIPT_MAX_FILE_SIZE_BYTES`, default 5MB), decodes it with
+   `sharp` to confirm it is a real image of that type and to read its true dimensions (never trusting
+   the declared `Content-Type` or filename extension alone), stores it under a generated filename in
+   a directory that is never registered as a public static route (`RECEIPT_LOCAL_DIR`, separate from
+   `MEDIA_LOCAL_DIR`), and returns only an opaque `receiptId` - never a filesystem path. The upload is
+   unattached (`orderId: null`) until an order claims it.
+2. **Order creation.** `POST /orders` with `paymentMethod: "INSTAPAY_MANUAL"` requires `receiptId`
+   (rejected with `400` if missing, and rejected if supplied alongside `CASH_ON_DELIVERY`).
+   `OrdersService.createOrder` verifies the receipt belongs to this exact cart, is not expired, and
+   is not already attached to a different order, then atomically claims it (`orderId: null` in the
+   `WHERE` clause of the claiming `UPDATE`, the same conditional-UPDATE-race-guard pattern used
+   everywhere else in this codebase) inside the same transaction that creates the order - so either
+   the order and the attachment both commit, or neither does. `receiptId` is part of the hashed
+   idempotency payload (§18), so retrying with the same key and the same receipt returns the original
+   order rather than attempting to reclaim an already-attached receipt.
+3. **Never auto-paid.** Attaching a receipt does not touch `Order.paymentStatus` at all - it stays
+   `UNPAID` ("awaiting verification" is this exact state: `paymentMethod: INSTAPAY_MANUAL` +
+   `paymentStatus: UNPAID` + a receipt with `status: PENDING_REVIEW`). Only the existing
+   `PATCH /admin/orders/:id/payment-status {status: "PAID"}` (`OWNER_ADMIN` only, §20) ever marks it
+   paid - the same action already used for cash orders. No new payment status was needed.
+4. **Reservation deadline.** An `INSTAPAY_MANUAL` order's stock reservation uses
+   `INSTAPAY_REVIEW_DEADLINE_MINUTES` (default 1440 = 24h) instead of `RESERVATION_TTL_MINUTES`
+   (default 15) - long enough to cover the transfer-and-review window, not the short
+   abandoned-checkout window cash orders use. Everything else about expiry (§21) is unchanged: if
+   the deadline passes with no admin action, the same sweep releases the reservation and cancels the
+   order, exactly as it would for any other `PENDING`/`UNPAID` order.
+5. **Rejection.** `PATCH /admin/orders/:id/receipts/:receiptId/reject {reason}` (`OWNER_ADMIN` only,
+   audited) sets that specific receipt's own `status` to `REJECTED` - a field on `PaymentReceipt`,
+   deliberately separate from `Order.paymentStatus`, which does not change. Only a receipt currently
+   `PENDING_REVIEW` can be rejected.
+6. **Replacement.** `POST /cart/receipts/replace` (cart-token guarded) uploads and attaches a new
+   receipt to the cart's existing order in one step - only allowed when that order is
+   `INSTAPAY_MANUAL`, not `CANCELLED`, not yet `PAID`, and its most recent receipt is `REJECTED`.
+   The original (rejected) receipt row is kept, not overwritten, so staff can see the full history.
+   Replacement **never touches the stock reservation** - it does not extend, reset, or otherwise
+   affect `expiresAt`, so repeated rejected uploads cannot be used to indefinitely hold stock.
+7. **Late payment after cancellation.** If a transfer is discovered for an order that already
+   expired/was cancelled, `PATCH /admin/orders/:id/flag-late-payment {note}` (`OWNER_ADMIN`, audited)
+   records `latePaymentFlaggedAt`/`latePaymentNote` for manual reconciliation. It deliberately does
+   **not** change `fulfillmentStatus` or `paymentStatus`, and does not re-reserve stock - restoring
+   fulfillment automatically after the fact was explicitly out of scope; a human decides what to do
+   (refund, or fulfil out-of-band if stock genuinely still allows it).
+
+## 26. Receipt access: private storage, no access from an id alone
+
+A receipt image is never served by the public product-media pipeline (`/uploads`, `MediaAsset`) -
+it lives under a separate, non-public directory (`RECEIPT_LOCAL_DIR`) with no static route at all.
+The only ways to read the bytes back are `GET /cart/receipts/:receiptId/file` (must present the
+exact cart token that owns it) and `GET /admin/receipts/:receiptId/file` (must be authenticated
+staff with `OWNER_ADMIN` or `ORDER_OPERATOR`) - **a receipt id or an order number alone grants
+nothing** in either case; both endpoints re-check ownership/role on every request, the same
+principle already applied to guest order tracking (§18) and cart access (docs/DECISIONS.md).
+Uploads are also rate-limited (10/min per route) and capped per cart
+(`RECEIPT_MAX_PENDING_PER_CART`, default 5 unattached uploads) independent of the account-wide
+throttle default (120/min, see `app.module.ts`).
+
+Unattached uploads expire after `RECEIPT_UNATTACHED_RETENTION_MINUTES` (default 120) - long enough
+to survive a checkout retry - and are deleted by a scheduled sweep
+(`ReceiptCleanupScheduler`, same `@Interval` pattern as the order-expiry sweep, §21).
+**An attached receipt's `expiresAt` is cleared the moment it is attached**, so the cleanup query
+(`orderId IS NULL AND expiresAt < now()`) can never match an attached receipt, by construction -
+there is no code path that deletes a receipt still referenced by an order.

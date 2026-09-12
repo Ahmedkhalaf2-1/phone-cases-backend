@@ -29,12 +29,12 @@ into a single summed reservation per stock item (see `docs/DATA_MODEL.md` §10).
 
 ### 2. Payment provider
 
-**Status: unresolved.** No payment integration exists. Cash-on-delivery is explicitly called out in
-the brief as needing confirmation before enabling — with no provider decided yet, it stays entirely
-out of scope, not merely "disabled by config." As of Phase 3, this is implemented as an explicit gate
-(`PAYMENT_METHOD=none` in production) rather than a silent gap — see decision #22 below for exactly
-what is and isn't blocked by it. **Action needed:** pick a provider (or confirm COD) before public
-order acceptance can go live.
+**Status: RESOLVED for manual methods; still no online gateway.** Cash-on-delivery was explicitly
+called out as needing confirmation before enabling - it is now confirmed, alongside a second manual
+method: InstaPay bank transfer with a customer-uploaded screenshot, verified by a human admin (see
+decision #29 and `docs/BUSINESS_RULES.md` §22/§25 for the full implementation). No online payment
+gateway (card processing, automatic capture, webhooks) is selected or integrated, and none is
+planned without a further decision - this remains explicitly out of scope, not a silent gap.
 
 ### 3. Should publishing require complete Arabic content?
 
@@ -418,3 +418,66 @@ logged, not just that the pure function works in isolation); and a live check ag
 instance - created a real order, hit its tracking endpoint, then `grep`-ed the live server log file
 for the raw token (zero matches) and confirmed the actual log line read
 `GET /api/v1/orders/track/[REDACTED] 200 ...`.
+
+## InstaPay manual payment (screenshot upload)
+
+### 29. Payment method is now a per-order field, not just an environment gate
+
+`PAYMENT_METHOD` (env var) previously only gated *whether* `POST /orders` was reachable at all - it
+said nothing about *how* a given order gets paid, because no method beyond "eventually, somehow" was
+confirmed. That decision is now made: every order carries an explicit `paymentMethod`
+(`CASH_ON_DELIVERY` or `INSTAPAY_MANUAL`), required on every `POST /orders` request, no default.
+`PAYMENT_METHOD` keeps its original job (production on/off switch for public order acceptance) and
+gained one new valid value, `manual` - the real production setting once these two methods are what a
+deployment actually offers - alongside `none` (fully disabled) and `mock_dev_only` (dev/test
+simulation, refused outside development/test, functionally identical to `manual`). Existing rows
+predating this field got `paymentMethod: CASH_ON_DELIVERY` as a migration-level default (see #26
+below for the reasoning pattern) - never silently reclassified as InstaPay, which would imply a
+screenshot requirement retroactively.
+
+### 30. `PaymentReceipt.orderId` is nullable and NOT unique, on purpose
+
+A receipt starts unattached (`orderId: null`, bound only to the cart) so it can be uploaded *before*
+the order exists, and validated for retry-safety independent of whatever the order-creation
+transaction does or doesn't do. It is not `@unique` on `orderId` because a rejected receipt is never
+deleted or overwritten - a replacement upload is a **new row**, already attached to the same order,
+so the full history (original + every replacement, each with its own `status`/`rejectionReason`/
+`reviewedAt`) stays visible to staff. `Order.receipts` is a list for exactly this reason; UIs should
+treat the most recently created one as "current."
+
+### 31. Reused `PaymentStatus.UNPAID` for "awaiting verification" - no new payment status needed
+
+The brief allowed adding an explicit awaiting-verification payment status "if necessary." It wasn't:
+`paymentStatus: UNPAID` + `paymentMethod: INSTAPAY_MANUAL` + a `PaymentReceipt` with
+`status: PENDING_REVIEW` already describes "awaiting verification" precisely, without touching the
+existing `PaymentStatus` enum or its transition table (`docs/BUSINESS_RULES.md` §20) at all. Proof
+submission (`ReceiptStatus`) and payment confirmation (`PaymentStatus`) are consequently two
+completely independent fields by construction, not merely "in practice" - there is no code path
+where writing one also writes the other. `cancelDueToExpiry`'s existing `paymentStatus === UNPAID`
+condition (§21) therefore also needed no change: an unverified, expired InstaPay order is cancelled
+by the exact same check that already covered cash orders.
+
+### 32. Receipt storage reuses `MEDIA_STORAGE_DRIVER`, not a second config knob
+
+Public product media (`MediaStorageDriver`) and private payment receipts
+(`ReceiptStorageDriver`) are separate interfaces/implementations (different directories, and a
+receipt driver has no public `url` - only `read()`, gated by ownership/role checks) but are selected
+by the *same* `MEDIA_STORAGE_DRIVER` env var rather than a second one. One knob to reason about, and
+it stays honest: if S3 isn't wired up yet for public media, it isn't wired up for receipts either
+(`UnavailableReceiptStorageService` fails loudly, mirroring `UnavailableMediaStorageService`) -
+there's no scenario where one half of "storage" works and the other silently doesn't.
+
+### 33. A raw `MulterError` never actually reaches the exception filter - found while testing the size limit
+
+The size-limit test for receipt uploads expected `400 FILE_TOO_LARGE` (matching a `MulterError`
+branch added to `AllExceptionsFilter` defensively) and got `413` instead. Investigation: NestJS's
+`FileInterceptor` (used by both the receipt and the pre-existing media upload routes) already
+converts a `MulterError` with code `LIMIT_FILE_SIZE` into its own `PayloadTooLargeException` before
+any custom filter logic runs - the defensive `MulterError` branch is unreachable through that path
+(kept anyway, as a fallback for any future multer usage that bypasses `FileInterceptor`) but harmless
+either way. Rather than force a mismatched status code, `AllExceptionsFilter`'s `STATUS_CODE_MAP`
+gained one entry (`413 -> 'FILE_TOO_LARGE'`), so the *existing*, correct NestJS behavior now also
+produces a clean, stable error code instead of falling through to the generic `HTTP_ERROR`. This is
+a one-line, targeted fix required for the receipt size-limit requirement to have a clean API
+contract - it was not previously exercised by any test (`MediaAdminController`'s upload endpoint has
+the same underlying behavior and benefits from the same fix, at no extra cost).

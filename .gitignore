@@ -27,3 +27,7 @@ prisma/*.db
 
 # uploaded media (local dev storage)
 /uploads
+
+# private payment receipt uploads (local dev storage) - never committed,
+# same reasoning as /uploads
+/private-uploads

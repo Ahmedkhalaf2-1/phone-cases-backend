@@ -180,6 +180,7 @@ describe('Explicit unlimited-stock opt-in (e2e)', () => {
           shippingAddressLine1: 'Test St',
           shippingRateId: rate.id,
           expectedTotal: quote.body.total,
+          paymentMethod: 'CASH_ON_DELIVERY',
         })
         .expect(201);
       expect(order.body.subtotal).toBe(2000);

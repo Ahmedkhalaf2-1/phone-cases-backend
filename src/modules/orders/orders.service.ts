@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import {
   CartStatus,
   FulfillmentStatus,
+  OrderPaymentMethod,
   PaymentStatus,
   Prisma,
   ReservationStatus,
@@ -20,6 +21,7 @@ import {
   findCouponValidityError,
 } from '../cart/cart-pricing.service';
 import { ReservationsService } from '../inventory/reservations/reservations.service';
+import { ReceiptsService } from '../payments/receipts/receipts.service';
 import { computeShippingPrice, ShippingService } from '../shipping/shipping.service';
 import { AdminOrderQueryDto } from './dto/admin-order-query.dto';
 import { CreateOrderDto } from './dto/create-order.dto';
@@ -27,6 +29,7 @@ import { allocateDiscount, hashOrderRequestPayload } from './order-pricing.util'
 
 const ORDER_INCLUDE = {
   items: { orderBy: { createdAt: 'asc' as const } },
+  receipts: { orderBy: { createdAt: 'asc' as const } },
 } satisfies Prisma.OrderInclude;
 
 export type OrderWithItems = Prisma.OrderGetPayload<{ include: typeof ORDER_INCLUDE }>;
@@ -66,6 +69,7 @@ export class OrdersService {
     private readonly pricingService: CartPricingService,
     private readonly shippingService: ShippingService,
     private readonly reservationsService: ReservationsService,
+    private readonly receiptsService: ReceiptsService,
     private readonly auditLogService: AuditLogService,
   ) {}
 
@@ -155,6 +159,22 @@ export class OrdersService {
       }
     }
 
+    // Cash needs no proof; InstaPay requires exactly one receipt reference
+    // pointing at an upload already made on this same cart (see
+    // ReceiptsService.uploadForCart) - checked (ownership, not already
+    // attached elsewhere, not expired) here, then re-claimed atomically
+    // inside the transaction below. Uploading a screenshot never marks
+    // anything PAID by itself - see docs/BUSINESS_RULES.md.
+    if (dto.paymentMethod === OrderPaymentMethod.CASH_ON_DELIVERY && dto.receiptId) {
+      throw new BadRequestException('receiptId must not be provided for CASH_ON_DELIVERY orders');
+    }
+    if (dto.paymentMethod === OrderPaymentMethod.INSTAPAY_MANUAL && !dto.receiptId) {
+      throw new BadRequestException('receiptId is required for INSTAPAY_MANUAL orders');
+    }
+    if (dto.paymentMethod === OrderPaymentMethod.INSTAPAY_MANUAL && dto.receiptId) {
+      await this.receiptsService.findOwnedUnattachedOrThrow(cartId, dto.receiptId);
+    }
+
     const normalizedPhone = normalizePhoneNumber(dto.customerPhone, dto.shippingCountry);
 
     // priced.items and cart.items are index-aligned (buildView maps
@@ -174,7 +194,14 @@ export class OrdersService {
       ...new Set(stockLines.map((line) => line.stockItemId)),
     ]);
 
-    const ttlMinutes = this.configService.getOrThrow<number>('RESERVATION_TTL_MINUTES');
+    // InstaPay orders get a much longer stock hold than the default TTL,
+    // long enough to cover the bank-transfer-and-screenshot-review window
+    // rather than the short "did they abandon checkout" window cash
+    // orders use - see docs/BUSINESS_RULES.md "InstaPay review deadline".
+    const ttlMinutes =
+      dto.paymentMethod === OrderPaymentMethod.INSTAPAY_MANUAL
+        ? this.configService.getOrThrow<number>('INSTAPAY_REVIEW_DEADLINE_MINUTES')
+        : this.configService.getOrThrow<number>('RESERVATION_TTL_MINUTES');
 
     try {
       const order = await this.prisma.$transaction(async (tx) => {
@@ -200,6 +227,7 @@ export class OrdersService {
             idempotencyKey,
             idempotencyRequestHash: requestHash,
             cartId: cart.id,
+            paymentMethod: dto.paymentMethod,
             currency: priced.currency,
             subtotal: priced.subtotal,
             discountTotal: priced.discountTotal,
@@ -239,6 +267,10 @@ export class OrdersService {
           include: ORDER_INCLUDE,
         });
 
+        if (dto.paymentMethod === OrderPaymentMethod.INSTAPAY_MANUAL && dto.receiptId) {
+          await this.receiptsService.attachToOrderInTransaction(tx, dto.receiptId, createdOrder.id);
+        }
+
         if (stockLines.length > 0) {
           await this.reservationsService.reserveManyInTransaction(tx, stockLines, {
             orderId: createdOrder.id,
@@ -248,6 +280,15 @@ export class OrdersService {
 
         await tx.cart.update({ where: { id: cart.id }, data: { status: CartStatus.ORDERED } });
 
+        // Re-fetch when a receipt was just attached above - `createdOrder`
+        // was loaded before that attach, so its `receipts` would otherwise
+        // come back empty in the response to this very request.
+        if (dto.paymentMethod === OrderPaymentMethod.INSTAPAY_MANUAL && dto.receiptId) {
+          return tx.order.findUniqueOrThrow({
+            where: { id: createdOrder.id },
+            include: ORDER_INCLUDE,
+          });
+        }
         return createdOrder;
       });
 
@@ -524,5 +565,46 @@ export class OrdersService {
       metadata: { reason: 'stock_reservation_expired' },
     });
     return true;
+  }
+
+  /**
+   * Records that payment was discovered for an order that is already
+   * CANCELLED (e.g. a late InstaPay transfer that arrived after the
+   * review deadline expired and the reservation/order were auto-
+   * cancelled) - deliberately does NOT change fulfillmentStatus or
+   * paymentStatus, and does NOT re-reserve stock. This is purely an
+   * audited note for a human to reconcile manually (refund the transfer,
+   * or fulfil out-of-band if stock genuinely allows it) - see
+   * docs/BUSINESS_RULES.md "Late payment after cancellation".
+   */
+  async flagLatePayment(
+    orderId: string,
+    note: string,
+    actor: AuthenticatedStaff,
+  ): Promise<OrderWithItems> {
+    const order = await this.findByIdForAdmin(orderId);
+    if (order.fulfillmentStatus !== FulfillmentStatus.CANCELLED) {
+      throw new AppException(
+        'INVALID_STATE_TRANSITION',
+        'Late-payment reconciliation only applies to a cancelled order',
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    const updated = await this.prisma.order.update({
+      where: { id: orderId },
+      data: { latePaymentFlaggedAt: new Date(), latePaymentNote: note },
+      include: ORDER_INCLUDE,
+    });
+
+    await this.auditLogService.record({
+      staffUserId: actor.id,
+      action: 'order.late_payment_flagged',
+      entityType: 'Order',
+      entityId: orderId,
+      metadata: { note },
+    });
+
+    return updated;
   }
 }

@@ -220,32 +220,64 @@ coupon stays attached until the client explicitly removes it.
     "shippingCountry": "EG", "shippingCity": "...", "shippingAddressLine1": "...",
     "shippingAddressLine2": "optional", "shippingPostalCode": "optional",
     "shippingRateId": "uuid-from-shipping-options",
-    "expectedTotal": 86000
+    "expectedTotal": 86000,
+    "paymentMethod": "CASH_ON_DELIVERY",
+    "receiptId": "required only when paymentMethod is INSTAPAY_MANUAL - from POST /cart/receipts"
   }
   ```
 
   Returns the guest order view (`201`) — `orderNumber`, `trackingToken`, both status fields,
-  totals, `shippingAddress`, and the immutable `items` snapshot. Error codes: `409
-  IDEMPOTENCY_KEY_REUSED` (same key, different body), `409 CART_ALREADY_ORDERED`, `400` (empty
-  cart), `409 ITEMS_UNAVAILABLE` (with `details.items`), `409 SHIPPING_RATE_NOT_AVAILABLE`, `409
-  PRICE_CHANGED` (with fresh totals in `details`), `409 COUPON_USAGE_LIMIT_REACHED`, `409
-  COUPON_NOT_APPLICABLE`. **Returns `503`** if `PAYMENT_METHOD=none` (the production default until
-  a payment provider is selected — see docs/DECISIONS.md) — the endpoint is intentionally
-  unreachable until that decision is made.
+  `paymentMethod`, `receipts` (id/status/rejectionReason/createdAt only - no file data), totals,
+  `shippingAddress`, and the immutable `items` snapshot. Error codes: `409 IDEMPOTENCY_KEY_REUSED`
+  (same key, different body), `409 CART_ALREADY_ORDERED`, `400` (empty cart, missing/misplaced
+  `receiptId`), `409 ITEMS_UNAVAILABLE` (with `details.items`), `409 SHIPPING_RATE_NOT_AVAILABLE`,
+  `409 PRICE_CHANGED` (with fresh totals in `details`), `409 COUPON_USAGE_LIMIT_REACHED`, `409
+  COUPON_NOT_APPLICABLE`, `404 RECEIPT_NOT_FOUND` (wrong cart or doesn't exist), `409
+  RECEIPT_ALREADY_ATTACHED`, `410 RECEIPT_EXPIRED`. **Returns `503`** if `PAYMENT_METHOD=none` (see
+  docs/DECISIONS.md) — the endpoint is intentionally unreachable until an operator sets `manual`.
 - `GET /api/v1/orders/track/:trackingToken` — public, no cart token needed (the tracking token
   itself is the credential). Returns the same guest order view. `404` for any token that doesn't
   match an order — including a guessed/incorrect one, never leaking whether a *similar* token
   exists.
 
-## Admin orders (Phase 3)
+## Payment receipts / InstaPay manual (Phase 4)
+
+Guest-facing, all authenticated by the cart token (`X-Cart-Token`), never by receiptId/order number
+alone — see docs/BUSINESS_RULES.md §25-26.
+
+- `POST /api/v1/cart/receipts` — `multipart/form-data`, field name `file`. Cart must be `ACTIVE`.
+  Accepts JPEG/PNG/WebP up to `RECEIPT_MAX_FILE_SIZE_BYTES` (default 5MB); the actual file content
+  is decoded to confirm it's a real image, not just trusting the extension/Content-Type. Returns
+  `{ receiptId }` (`201`). Rate-limited (10/min). Errors: `400` (unreadable/unsupported/wrong-type
+  file), `413 FILE_TOO_LARGE`, `409 CART_NOT_ACTIVE`, `409 TOO_MANY_PENDING_RECEIPTS` (cap:
+  `RECEIPT_MAX_PENDING_PER_CART`, default 5).
+- `POST /api/v1/cart/receipts/replace` — same file constraints, but uploads AND attaches a
+  replacement directly to the cart's existing order in one step. Only allowed when that order is
+  `INSTAPAY_MANUAL`, not cancelled, not yet paid, and its most recent receipt was rejected. Returns
+  `{ receiptId }` (`201`). Errors: `409 REPLACEMENT_NOT_APPLICABLE` (not an InstaPay order), `409
+  REPLACEMENT_NOT_ALLOWED` (current receipt isn't rejected), `409 ORDER_CANCELLED`, `409
+  ORDER_ALREADY_PAID`.
+- `GET /api/v1/cart/receipts/:receiptId/file` — streams the image (`Content-Type` set, `Cache-
+  Control: private, no-store`). `404` if the receipt doesn't belong to this cart.
+
+## Admin orders (Phase 3, extended in Phase 4)
 
 - `GET /api/v1/admin/orders?fulfillmentStatus=&paymentStatus=&page=&pageSize=` —
-  `OWNER_ADMIN`/`ORDER_OPERATOR`. Paginated, full order + snapshot detail.
+  `OWNER_ADMIN`/`ORDER_OPERATOR`. Paginated, full order + snapshot detail, including `receipts`.
 - `GET /api/v1/admin/orders/:id` — same roles.
 - `PATCH /api/v1/admin/orders/:id/fulfillment-status` — `{ status }`, `OWNER_ADMIN`/
   `ORDER_OPERATOR`. `409 INVALID_STATE_TRANSITION` if not allowed from the current status.
 - `PATCH /api/v1/admin/orders/:id/payment-status` — `{ status }`, **`OWNER_ADMIN` only** (financial
-  action). Same transition-error shape; also `409` if the order is `CANCELLED`.
+  action). Same transition-error shape; also `409` if the order is `CANCELLED`. The one and only way
+  an order (cash or InstaPay) is ever marked `PAID`.
+- `PATCH /api/v1/admin/orders/:id/receipts/:receiptId/reject` — `{ reason }`, **`OWNER_ADMIN`
+  only**. Marks that receipt `REJECTED` (audited); does not change the order's payment status. `409
+  INVALID_STATE_TRANSITION` if the receipt isn't currently `PENDING_REVIEW`.
+- `PATCH /api/v1/admin/orders/:id/flag-late-payment` — `{ note }`, **`OWNER_ADMIN` only**. Only
+  valid on a `CANCELLED` order; records a manual-reconciliation note without restoring fulfillment
+  or payment status. `409` otherwise.
+- `GET /api/v1/admin/receipts/:receiptId/file` — `OWNER_ADMIN`/`ORDER_OPERATOR`. Streams any
+  receipt's image, gated by role only (no ownership check needed for staff).
 - `POST /api/v1/admin/orders/sweep-expired` — `OWNER_ADMIN`/`ORDER_OPERATOR`. Manually triggers the
   same expiry sweep the scheduler runs every minute; returns
   `{ releasedReservations: <count>, cancelledOrders: <count> }`.

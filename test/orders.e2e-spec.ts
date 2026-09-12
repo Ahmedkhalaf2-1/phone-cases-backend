@@ -85,6 +85,7 @@ describe('Orders (e2e)', () => {
       shippingCountry: 'EG',
       shippingCity: 'Cairo',
       shippingAddressLine1: '123 Main St',
+      paymentMethod: 'CASH_ON_DELIVERY',
       ...overrides,
     };
   }

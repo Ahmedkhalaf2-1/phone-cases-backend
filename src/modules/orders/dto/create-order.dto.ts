@@ -1,6 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { OrderPaymentMethod } from '@prisma/client';
 import {
   IsEmail,
+  IsEnum,
   IsInt,
   IsOptional,
   IsString,
@@ -85,4 +87,22 @@ export class CreateOrderDto {
   @IsInt()
   @Min(0)
   expectedTotal!: number;
+
+  @ApiProperty({
+    enum: OrderPaymentMethod,
+    description:
+      'CASH_ON_DELIVERY needs no screenshot. INSTAPAY_MANUAL requires receiptId to reference an ' +
+      'upload already made via POST /cart/receipts on this same cart.',
+  })
+  @IsEnum(OrderPaymentMethod)
+  paymentMethod!: OrderPaymentMethod;
+
+  @ApiPropertyOptional({
+    description:
+      'Required when paymentMethod is INSTAPAY_MANUAL, and must not be provided otherwise. The id ' +
+      'returned by POST /cart/receipts for a screenshot uploaded on this same cart.',
+  })
+  @IsOptional()
+  @IsUUID()
+  receiptId?: string;
 }

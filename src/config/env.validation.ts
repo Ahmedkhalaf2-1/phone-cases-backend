@@ -22,15 +22,18 @@ enum MediaStorageDriver {
   S3 = 's3',
 }
 
-// No payment provider has been selected/confirmed for this business (see
-// docs/DECISIONS.md). `None` disables public order creation entirely
-// (503) so the storefront cannot silently accept orders nobody can pay
-// for. `MockDevOnly` is a clearly-labeled, non-production simulation that
-// lets the order pipeline itself be exercised end-to-end in dev/test
-// without a real payment integration - see docs/BUSINESS_RULES.md
-// "Payment scope". It is refused at startup outside development/test.
+// `None` disables public order creation entirely (503) so the storefront
+// cannot silently accept orders nobody can pay for. `Manual` is the
+// confirmed, production-valid setting: two manual payment methods (cash on
+// delivery, InstaPay bank transfer verified by staff from an uploaded
+// screenshot) - no online payment gateway - see docs/DECISIONS.md.
+// `MockDevOnly` is a clearly-labeled, non-production simulation kept for
+// dev/test convenience; it behaves the same as `Manual` (order acceptance
+// enabled) but is refused at startup outside development/test, so a real
+// deployment is never accidentally left on the "simulation" setting.
 enum PaymentMethod {
   None = 'none',
+  Manual = 'manual',
   MockDevOnly = 'mock_dev_only',
 }
 
@@ -124,6 +127,40 @@ class EnvironmentVariables {
   @IsInt()
   @Min(1)
   RESERVATION_TTL_MINUTES: number = 15;
+
+  // How long an INSTAPAY_MANUAL order's stock reservation is held before
+  // it expires - deliberately separate from RESERVATION_TTL_MINUTES (and
+  // normally much longer) so a customer doesn't lose their stock hold
+  // while their bank transfer/screenshot review is still in progress. See
+  // docs/BUSINESS_RULES.md "InstaPay review deadline".
+  @IsInt()
+  @Min(1)
+  INSTAPAY_REVIEW_DEADLINE_MINUTES: number = 1440;
+
+  // Payment receipts (InstaPay screenshots) are stored privately, never
+  // under MEDIA_LOCAL_DIR (which is served publicly at /uploads) - see
+  // src/modules/payments/receipts/receipt-storage.
+  @IsString()
+  @IsNotEmpty()
+  RECEIPT_LOCAL_DIR: string = 'private-uploads/receipts';
+
+  @IsInt()
+  @Min(1)
+  RECEIPT_MAX_FILE_SIZE_BYTES: number = 5 * 1024 * 1024;
+
+  // How long an uploaded receipt stays usable before it's attached to an
+  // order - long enough to survive a checkout retry, short enough that
+  // abandoned uploads don't accumulate forever. See ReceiptCleanupService.
+  @IsInt()
+  @Min(1)
+  RECEIPT_UNATTACHED_RETENTION_MINUTES: number = 120;
+
+  // Caps how many not-yet-attached receipts one guest cart can have at
+  // once, independent of the global upload rate limit - see
+  // ReceiptsService.assertPendingUploadQuota.
+  @IsInt()
+  @Min(1)
+  RECEIPT_MAX_PENDING_PER_CART: number = 5;
 }
 
 export function validateEnv(config: Record<string, unknown>): EnvironmentVariables {

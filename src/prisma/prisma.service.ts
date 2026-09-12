@@ -41,6 +41,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
 
     const tableNames = [
       'audit_logs',
+      'payment_receipts',
       'order_items',
       'orders',
       'cart_items',

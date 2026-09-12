@@ -276,3 +276,39 @@ needed inside the sweep. Only an explicit `consume()` (payment) or `release()` (
 resolve a pinned reservation from then on. See `docs/BUSINESS_RULES.md` for why this exists and
 what it does *not* protect against, and docs/DECISIONS.md #19 for why the far-future-date approach
 this replaced was itself a workaround rather than the intended design.
+
+## 11. Payment method and receipts (InstaPay manual)
+
+`Order.paymentMethod` (`OrderPaymentMethod`: `CASH_ON_DELIVERY` | `INSTAPAY_MANUAL`) is required on
+every order going forward; pre-existing rows got `CASH_ON_DELIVERY` as a migration-level default
+(no data lost, nothing silently reclassified as needing a screenshot). See
+`docs/BUSINESS_RULES.md` §22/§25 and `docs/DECISIONS.md` #29-33 for the full rationale.
+
+`PaymentReceipt` is the customer-uploaded InstaPay transfer screenshot:
+
+```
+Cart (1) ───< PaymentReceipt >─── (0..1) Order
+```
+
+- **Unattached** (`orderId: null`): created by `POST /cart/receipts`, bound only to the cart,
+  with an `expiresAt` retention deadline (`RECEIPT_UNATTACHED_RETENTION_MINUTES`). Swept and deleted
+  once expired (`ReceiptCleanupScheduler`) - never touching a row that has since been attached.
+- **Attached** (`orderId` set, `expiresAt: null`): claimed atomically by `OrdersService.createOrder`
+  inside the same transaction as order creation (a conditional `UPDATE ... WHERE orderId IS NULL`,
+  the same race-guard pattern as coupon usage/stock reservation elsewhere in this schema) or created
+  already-attached by a post-rejection replacement upload (`POST /cart/receipts/replace`). Never
+  matches the cleanup sweep again, by construction.
+- `orderId` is **not unique** - an order can have several receipts over time (the original plus any
+  rejected-then-replaced ones), preserving full history. See `docs/DECISIONS.md` #30.
+
+`PaymentReceipt.status` (`ReceiptStatus`: `PENDING_REVIEW` | `ACCEPTED` | `REJECTED`) tracks the
+screenshot's own review lifecycle, deliberately independent of `Order.paymentStatus` - see
+`docs/DECISIONS.md` #31 for why no new `PaymentStatus` value was needed. `width`/`height` are read
+from the actually-decoded image (via `sharp`), never trusted from the client; `storageKey` is a
+generated filename in a private directory (`RECEIPT_LOCAL_DIR`), never a client-supplied path and
+never under the publicly-served `MEDIA_LOCAL_DIR` tree - see
+`src/modules/payments/receipts/receipt-storage/`.
+
+`Order.latePaymentFlaggedAt`/`latePaymentNote`: set only by the explicit, audited
+`flagLatePayment` admin action, only on an already-`CANCELLED` order - a manual-reconciliation note
+that deliberately never restores `fulfillmentStatus`/`paymentStatus` or re-reserves stock.
