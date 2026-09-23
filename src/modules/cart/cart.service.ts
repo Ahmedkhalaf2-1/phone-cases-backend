@@ -1,11 +1,14 @@
 import { randomBytes } from 'node:crypto';
 import { BadRequestException, HttpStatus, Injectable } from '@nestjs/common';
-import { CartStatus, ProductStatus, StockItem } from '@prisma/client';
+import { CartStatus, Prisma, ProductStatus, ProductVariant, StockItem } from '@prisma/client';
 import { AppException, ResourceNotFoundException } from '../../common/exceptions/app.exception';
 import { Locale } from '../../common/i18n/localized-field';
+import { sanitizeCartItemNote } from '../../common/utils/sanitize-note.util';
 import { PrismaService } from '../../prisma/prisma.service';
+import { CustomDesignsService } from '../custom-designs/custom-designs.service';
 import { BundlesService } from '../promotions/bundles/bundles.service';
 import { AddCartItemDto, MAX_CART_ITEM_QUANTITY } from './dto/add-cart-item.dto';
+import { UpdateCartItemDto } from './dto/update-cart-item.dto';
 import {
   CART_INCLUDE,
   CartPricingService,
@@ -16,12 +19,15 @@ import {
 
 const CART_TOKEN_BYTES = 32;
 
+type VariantWithAvailability = ProductVariant & { stockItem: StockItem | null };
+
 @Injectable()
 export class CartService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly pricingService: CartPricingService,
     private readonly bundlesService: BundlesService,
+    private readonly customDesignsService: CustomDesignsService,
   ) {}
 
   async createCart(): Promise<{ token: string; cart: CartView }> {
@@ -62,9 +68,86 @@ export class CartService {
         HttpStatus.CONFLICT,
       );
     }
+    if (!variant.isPersonalizable && dto.customDesignId) {
+      throw new BadRequestException(
+        'customDesignId can only be provided when the variant is personalizable',
+      );
+    }
 
-    const existing = await this.prisma.cartItem.findUnique({
-      where: { cartId_variantId: { cartId, variantId: dto.variantId } },
+    const note = sanitizeCartItemNote(dto.note);
+
+    if (variant.isPersonalizable) {
+      return this.addPersonalizedItem(cartId, variant, dto, note, locale);
+    }
+    return this.addNonPersonalizedItem(cartId, variant, dto, note, locale);
+  }
+
+  /**
+   * A personalizable variant is never merged into an existing line (see
+   * CartItem.isPersonalized and the partial unique index in
+   * prisma/schema.prisma) - each add creates its own line, since each may
+   * end up carrying a different design. `dto.customDesignId` is optional:
+   * a personalized line can exist with no design yet (it simply fails
+   * checkout, see CartPricingService.toItemView) and get one attached
+   * later via attachCustomDesign.
+   */
+  private async addPersonalizedItem(
+    cartId: string,
+    variant: VariantWithAvailability,
+    dto: AddCartItemDto,
+    note: string | null | undefined,
+    locale?: Locale,
+  ): Promise<CartView> {
+    if (dto.quantity > MAX_CART_ITEM_QUANTITY) {
+      throw new BadRequestException(
+        `Quantity for a single item cannot exceed ${MAX_CART_ITEM_QUANTITY}`,
+      );
+    }
+    await this.assertSoftAvailability(
+      cartId,
+      variant.stockItem,
+      variant.isUnlimitedStock,
+      dto.quantity,
+      [],
+    );
+
+    const customDesignId = dto.customDesignId
+      ? await this.assertDesignAttachable(cartId, dto.customDesignId, variant.id, null)
+      : null;
+
+    await this.prisma.cartItem.create({
+      data: {
+        cartId,
+        variantId: variant.id,
+        quantity: dto.quantity,
+        note: note ?? null,
+        isPersonalized: true,
+        customDesignId,
+      },
+    });
+
+    return this.getCart(cartId, locale);
+  }
+
+  /**
+   * The original merge-by-(cartId, variantId) behavior, scoped to
+   * non-personalized lines only (`isPersonalized: false`) so it can never
+   * merge into/with a personalized line. The DB-level compound unique key
+   * this used to rely on for an atomic `upsert` no longer exists (replaced
+   * by a partial index - see prisma/schema.prisma), so a concurrent double
+   * add is instead handled by catching the partial index's unique
+   * violation and folding this request's quantity into whichever line won
+   * the race.
+   */
+  private async addNonPersonalizedItem(
+    cartId: string,
+    variant: VariantWithAvailability,
+    dto: AddCartItemDto,
+    note: string | null | undefined,
+    locale?: Locale,
+  ): Promise<CartView> {
+    const existing = await this.prisma.cartItem.findFirst({
+      where: { cartId, variantId: variant.id, isPersonalized: false },
     });
     const newQuantity = (existing?.quantity ?? 0) + dto.quantity;
     if (newQuantity > MAX_CART_ITEM_QUANTITY) {
@@ -80,21 +163,83 @@ export class CartService {
       existing ? [existing.id] : [],
     );
 
-    await this.prisma.cartItem.upsert({
-      where: { cartId_variantId: { cartId, variantId: dto.variantId } },
-      create: { cartId, variantId: dto.variantId, quantity: dto.quantity },
-      update: { quantity: newQuantity },
-    });
+    // `note` left out of the request merges into an already-in-cart line
+    // without disturbing whatever note it already had - only an
+    // explicitly provided value (including "" -> null) overwrites it.
+    if (existing) {
+      await this.prisma.cartItem.update({
+        where: { id: existing.id },
+        data: { quantity: newQuantity, ...(note !== undefined ? { note } : {}) },
+      });
+    } else {
+      try {
+        await this.prisma.cartItem.create({
+          data: {
+            cartId,
+            variantId: variant.id,
+            quantity: dto.quantity,
+            note: note ?? null,
+            isPersonalized: false,
+          },
+        });
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+          const winner = await this.prisma.cartItem.findFirstOrThrow({
+            where: { cartId, variantId: variant.id, isPersonalized: false },
+          });
+          await this.prisma.cartItem.update({
+            where: { id: winner.id },
+            data: {
+              quantity: Math.min(winner.quantity + dto.quantity, MAX_CART_ITEM_QUANTITY),
+              ...(note !== undefined ? { note } : {}),
+            },
+          });
+        } else {
+          throw error;
+        }
+      }
+    }
 
     return this.getCart(cartId, locale);
   }
 
-  async updateItemQuantity(
+  /**
+   * Validates a design is owned by this cart, matches `variantId`, and is
+   * not already attached to a DIFFERENT cart item - `currentItemId` lets a
+   * caller re-attaching the same design to the same item it is already on
+   * treat that as a no-op instead of a conflict. Returns the design's id.
+   */
+  private async assertDesignAttachable(
+    cartId: string,
+    customDesignId: string,
+    variantId: string,
+    currentItemId: string | null,
+  ): Promise<string> {
+    const design = await this.customDesignsService.assertOwnedReadyForVariant(
+      cartId,
+      customDesignId,
+      variantId,
+    );
+    if (design.cartItem && design.cartItem.id !== currentItemId) {
+      throw new AppException(
+        'CUSTOM_DESIGN_ALREADY_ATTACHED',
+        'This design is already attached to another cart item',
+        HttpStatus.CONFLICT,
+      );
+    }
+    return design.id;
+  }
+
+  async updateItem(
     cartId: string,
     itemId: string,
-    quantity: number,
+    dto: UpdateCartItemDto,
     locale?: Locale,
   ): Promise<CartView> {
+    if (dto.quantity === undefined && dto.note === undefined) {
+      throw new BadRequestException('At least one of quantity or note must be provided');
+    }
+
     await this.assertCartIsActive(cartId);
     const item = await this.prisma.cartItem.findFirst({
       where: { id: itemId, cartId },
@@ -104,18 +249,26 @@ export class CartService {
       throw new ResourceNotFoundException('CartItem', itemId);
     }
 
-    if (quantity === 0) {
+    if (dto.quantity === 0) {
       await this.prisma.cartItem.delete({ where: { id: itemId } });
-    } else {
+      return this.getCart(cartId, locale);
+    }
+
+    const data: Prisma.CartItemUpdateInput = {};
+    if (dto.quantity !== undefined) {
       await this.assertSoftAvailability(
         cartId,
         item.variant.stockItem,
         item.variant.isUnlimitedStock,
-        quantity,
+        dto.quantity,
         [itemId],
       );
-      await this.prisma.cartItem.update({ where: { id: itemId }, data: { quantity } });
+      data.quantity = dto.quantity;
     }
+    if (dto.note !== undefined) {
+      data.note = sanitizeCartItemNote(dto.note);
+    }
+    await this.prisma.cartItem.update({ where: { id: itemId }, data });
 
     return this.getCart(cartId, locale);
   }
@@ -165,8 +318,33 @@ export class CartService {
       );
     }
 
-    const existingTargetItem = await this.prisma.cartItem.findUnique({
-      where: { cartId_variantId: { cartId, variantId: newVariantId } },
+    // A custom design is rendered for one specific variant's print spec -
+    // it can never carry over to a different variant, even another
+    // personalizable one. Switching either endpoint of a personalized line
+    // always drops whatever was attached and never merges with another
+    // line (each personalized line must stay independently addressable -
+    // see CartItem.isPersonalized).
+    if (originalItem.isPersonalized || newVariant.isPersonalizable) {
+      await this.assertSoftAvailability(
+        cartId,
+        newVariant.stockItem,
+        newVariant.isUnlimitedStock,
+        originalItem.quantity,
+        [originalItem.id],
+      );
+      await this.prisma.cartItem.update({
+        where: { id: originalItem.id },
+        data: {
+          variantId: newVariantId,
+          isPersonalized: newVariant.isPersonalizable,
+          customDesignId: null,
+        },
+      });
+      return this.getCart(cartId, locale);
+    }
+
+    const existingTargetItem = await this.prisma.cartItem.findFirst({
+      where: { cartId, variantId: newVariantId, isPersonalized: false },
     });
     const resultingQuantity = Math.min(
       (existingTargetItem?.quantity ?? 0) + originalItem.quantity,
@@ -198,6 +376,65 @@ export class CartService {
       }
     });
 
+    return this.getCart(cartId, locale);
+  }
+
+  /**
+   * Attaches (or replaces) the one custom design a personalized cart line
+   * may carry - idempotent when re-attaching the same design to the same
+   * item, rejected if that design is already attached to a different item.
+   * See docs/BUSINESS_RULES.md-equivalent notes on CustomDesign.
+   */
+  async attachCustomDesign(
+    cartId: string,
+    itemId: string,
+    customDesignId: string,
+    locale?: Locale,
+  ): Promise<CartView> {
+    await this.assertCartIsActive(cartId);
+    const item = await this.prisma.cartItem.findFirst({
+      where: { id: itemId, cartId },
+      include: { variant: true },
+    });
+    if (!item) {
+      throw new ResourceNotFoundException('CartItem', itemId);
+    }
+    if (!item.variant.isPersonalizable) {
+      throw new AppException(
+        'VARIANT_NOT_PERSONALIZABLE',
+        "This cart item's variant does not support custom designs",
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    const designId = await this.assertDesignAttachable(
+      cartId,
+      customDesignId,
+      item.variantId,
+      itemId,
+    );
+    await this.prisma.cartItem.update({
+      where: { id: itemId },
+      data: { customDesignId: designId },
+    });
+
+    return this.getCart(cartId, locale);
+  }
+
+  /**
+   * Detaches whatever design a cart item carries - the CustomDesign row
+   * and its files are never deleted (it remains a valid, re-attachable
+   * upload owned by this cart), only the CartItem's FK is cleared. The
+   * item itself stays in the cart and simply fails checkout again until a
+   * design is attached - see CartPricingService.toItemView.
+   */
+  async removeCustomDesign(cartId: string, itemId: string, locale?: Locale): Promise<CartView> {
+    await this.assertCartIsActive(cartId);
+    const item = await this.prisma.cartItem.findFirst({ where: { id: itemId, cartId } });
+    if (!item) {
+      throw new ResourceNotFoundException('CartItem', itemId);
+    }
+    await this.prisma.cartItem.update({ where: { id: itemId }, data: { customDesignId: null } });
     return this.getCart(cartId, locale);
   }
 

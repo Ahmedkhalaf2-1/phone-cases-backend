@@ -8,6 +8,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -18,6 +19,7 @@ import { CartTokenGuard } from './cart-token.guard';
 import { CurrentCartId } from './current-cart-id.decorator';
 import { AddCartItemDto } from './dto/add-cart-item.dto';
 import { ApplyCouponDto } from './dto/apply-coupon.dto';
+import { AttachCustomDesignDto } from './dto/attach-custom-design.dto';
 import { ReplaceCartItemVariantDto } from './dto/replace-cart-item-variant.dto';
 import { UpdateCartItemDto } from './dto/update-cart-item.dto';
 
@@ -58,12 +60,7 @@ export class CartController {
     @Body() dto: UpdateCartItemDto,
     @Query('locale') locale?: Locale,
   ) {
-    return this.cartService.updateItemQuantity(
-      cartId,
-      itemId,
-      dto.quantity,
-      locale ?? DEFAULT_LOCALE,
-    );
+    return this.cartService.updateItem(cartId, itemId, dto, locale ?? DEFAULT_LOCALE);
   }
 
   @Patch('items/:itemId/variant')
@@ -81,6 +78,35 @@ export class CartController {
       dto.newVariantId,
       locale ?? DEFAULT_LOCALE,
     );
+  }
+
+  @Put('items/:itemId/custom-design')
+  @ApiHeader({ name: 'X-Cart-Token', required: true })
+  @UseGuards(CartTokenGuard)
+  attachCustomDesign(
+    @CurrentCartId() cartId: string,
+    @Param('itemId') itemId: string,
+    @Body() dto: AttachCustomDesignDto,
+    @Query('locale') locale?: Locale,
+  ) {
+    return this.cartService.attachCustomDesign(
+      cartId,
+      itemId,
+      dto.customDesignId,
+      locale ?? DEFAULT_LOCALE,
+    );
+  }
+
+  @Delete('items/:itemId/custom-design')
+  @HttpCode(HttpStatus.OK)
+  @ApiHeader({ name: 'X-Cart-Token', required: true })
+  @UseGuards(CartTokenGuard)
+  removeCustomDesign(
+    @CurrentCartId() cartId: string,
+    @Param('itemId') itemId: string,
+    @Query('locale') locale?: Locale,
+  ) {
+    return this.cartService.removeCustomDesign(cartId, itemId, locale ?? DEFAULT_LOCALE);
   }
 
   @Delete('items/:itemId')

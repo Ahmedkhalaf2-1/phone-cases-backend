@@ -1,0 +1,79 @@
+diff --git a/docs/BUSINESS_RULES.md b/docs/BUSINESS_RULES.md
+index fa416c8..83387d0 100644
+--- a/docs/BUSINESS_RULES.md
++++ b/docs/BUSINESS_RULES.md
+@@ -785,3 +785,15 @@ that isn't. Confirming/paying still fails atomically with `STOCK_RESERVATION_LOS
+ state changes; unlimited-stock items and shared blank stock are unaffected (they contribute no
+ reservation rows, so they never affect this aggregate). No new persisted data or migration was
+ needed - `StockReservation` already carried everything required. See docs/DECISIONS.md.
++
++## 38. Reservation locks and cancellation after refunds
++
++Confirmation and payment lock the order first, then its reservation rows in ID order before
++reading stock coverage. Reservation locks remain held through pinning/consumption and commit.
++This also coordinates with standalone and lazy expiry, which update reservation rows without
++locking the order: expiry winning first is visible to the coverage check; confirmation winning
++first pins the reservation before expiry can recheck its deadline.
++
++Cancellation releases coupon usage only for UNPAID, PENDING, or FAILED payments, and only once.
++PAID, PARTIALLY_REFUNDED, and REFUNDED orders retain their coupon usage because funds were
++previously received. A refund does not restore coupon eligibility.
+diff --git a/docs/PROGRESS.md b/docs/PROGRESS.md
+index 355a05b..95e53a5 100644
+--- a/docs/PROGRESS.md
++++ b/docs/PROGRESS.md
+@@ -425,6 +425,15 @@ requests/responses if needed.
+    admin-verified screenshot, docs/DECISIONS.md #2/#29-33). A real online payment gateway remains
+    out of scope, not a silent gap. **Manual methods done; gateway integration still open.**
+ 
++## Focused follow-up to 751ab8d
++
++- Locked order reservations before coverage checks, keeping standalone/lazy expiry from
++  releasing stock between validation and confirmation/payment.
++- Restricted cancellation coupon release to UNPAID/PENDING/FAILED; refunded orders retain usage.
++- No migrations or API changes. Verification: Prisma client generation, `tsc --noEmit`,
++  `nest build`, and `git diff --check` passed. No tests added or run, as requested by the owner;
++  runtime concurrency behavior was not independently exercised in this follow-up.
++
+ ## Next milestone
+ 
+ With Phase 5's correctness hardening, CMS, bundle promotions, and manual refund/return
+diff --git a/src/modules/orders/orders.service.ts b/src/modules/orders/orders.service.ts
+index d7f2562..6d7c69e 100644
+--- a/src/modules/orders/orders.service.ts
++++ b/src/modules/orders/orders.service.ts
+@@ -701,11 +701,15 @@ export class OrdersService {
+         // stale UNPAID snapshot read before this transaction acquired the
+         // lock. This is what "legitimate paid-order cancellation" and
+         // "never release paid-order coupon usage using stale unpaid
+-        // state" both come down to. See docs/BUSINESS_RULES.md.
++        // state" both come down to. Refunded states also represent a
++        // previously paid order and must retain coupon usage.
++        // See docs/BUSINESS_RULES.md.
+         couponReleaseNeeded = Boolean(
+           order.couponId &&
+           !order.couponUsageReleased &&
+-          order.paymentStatus !== PaymentStatus.PAID,
++          (order.paymentStatus === PaymentStatus.UNPAID ||
++            order.paymentStatus === PaymentStatus.PENDING ||
++            order.paymentStatus === PaymentStatus.FAILED),
+         );
+       }
+ 
+@@ -901,6 +905,16 @@ export class OrdersService {
+     tx: Prisma.TransactionClient,
+     orderId: string,
+   ): Promise<{ active: string[]; hasAny: boolean; hasConsumed: boolean; fullyCovered: boolean }> {
++    // Callers already hold the order lock. Lock its reservations before
++    // reading coverage: standalone/lazy expiry does not lock the order.
++    // These locks survive through pin/consume and transaction commit, so
++    // expiry either finishes before this check or sees the pinned/consumed
++    // state afterwards. Stable ordering avoids competing lock orders here.
++    await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
++      SELECT id FROM stock_reservations
++      WHERE "orderId" = ${orderId}
++      ORDER BY id FOR UPDATE;
++    `);
+     const all = await tx.stockReservation.findMany({
+       where: { orderId },
+       select: { id: true, status: true, stockItemId: true, quantity: true },

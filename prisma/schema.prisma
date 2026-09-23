@@ -361,10 +361,11 @@ model Cart {
   couponId String?
   coupon   Coupon? @relation(fields: [couponId], references: [id], onDelete: SetNull)
 
-  items        CartItem[]
-  reservations StockReservation[]
-  order        Order?
-  receipts     PaymentReceipt[]
+  items         CartItem[]
+  reservations  StockReservation[]
+  order         Order?
+  receipts      PaymentReceipt[]
+  customDesigns CustomDesign[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -382,12 +383,42 @@ model CartItem {
 
   quantity Int
 
+  // Free-text customization instructions from the guest (e.g. "put the
+  // case in a black box"), carried over verbatim to OrderItem.note at
+  // checkout - see OrdersService.createOrder. Sanitized/length-capped in
+  // CartService before being persisted; null means no note, never an
+  // empty string - see sanitizeCartItemNote.
+  note String?
+
+  // Set once, at creation, from the variant's isPersonalizable flag at that
+  // moment - never re-derived from the live variant afterwards. A
+  // personalized line is never merged into/with another line (each one may
+  // carry a different design), unlike a normal line - see
+  // CartService.addItem/replaceItemVariant and the partial unique index
+  // below.
+  isPersonalized Boolean @default(false)
+
+  // At most one custom design per line - attached/replaced/removed through
+  // its own endpoints (see CustomDesignsModule), never through the normal
+  // quantity/note update. A personalized line with no design attached yet
+  // is a real, addressable cart row that simply fails checkout
+  // (CartPricingService.toItemView marks it unavailable) until one is set.
+  customDesignId String?       @unique
+  customDesign   CustomDesign? @relation(fields: [customDesignId], references: [id], onDelete: SetNull)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // Adding an already-in-cart variant again merges quantities rather than
-  // creating a second line - see CartService.addItem.
-  @@unique([cartId, variantId])
+  // Adding an already-in-cart NON-personalized variant again merges
+  // quantities rather than creating a second line - see CartService.addItem.
+  // This can no longer be a plain @@unique, since a personalizable variant
+  // legitimately needs many lines per cart (one per design). The real
+  // constraint is a PARTIAL unique index, hand-added in this feature's
+  // migration SQL: `UNIQUE (cartId, variantId) WHERE NOT "isPersonalized"`.
+  // Prisma's schema DSL cannot express a partial index, so it is not
+  // declared here - see prisma/migrations/*_add_personalized_phone_cases
+  // and docs/DECISIONS.md.
+  @@index([cartId, variantId])
   @@index([variantId])
   @@map("cart_items")
 }
@@ -474,6 +505,24 @@ model ProductVariant {
   orderItems        OrderItem[]
   bundleEligibility BundleEligibleVariant[]
 
+  // Explicit opt-in for the "Personalized Phone Case" feature - a variant
+  // must declare this before a custom design can ever be attached to it
+  // (CustomDesignsService.upload rejects any other variant). Never inferred
+  // from anything else about the variant. See docs/DECISIONS.md.
+  isPersonalizable Boolean @default(false)
+  // Additional charge (integer minor units, same currency as `price`) for
+  // attaching a custom design, included server-side in every price
+  // computation alongside `price` - see cart-pricing.service.ts's
+  // `effectiveUnitPrice`. Meaningless while isPersonalizable is false.
+  // Never trusted from the client.
+  customizationPrice Int @default(0)
+
+  // Per-variant print configuration override - optional, since a sensible
+  // DEFAULT_PRINT_SPEC (see custom-designs/print-spec.util.ts) already
+  // makes every isPersonalizable variant printable with no admin setup.
+  printSpecification     PrintSpecification?
+  customDesigns          CustomDesign[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -550,6 +599,175 @@ model VariantMedia {
   @@unique([variantId, mediaAssetId])
   @@index([mediaAssetId])
   @@map("variant_media")
+}
+
+// ---------------------------------------------------------------------------
+// Personalized Phone Case: customer-uploaded designs, automatically fit to
+// a variant's print canvas with center-crop+cover (no manual editor). See
+// docs/DECISIONS.md and src/modules/custom-designs for the full pipeline.
+// ---------------------------------------------------------------------------
+
+enum PrintOutputFormat {
+  JPEG
+  PNG
+}
+
+enum CustomDesignFitMode {
+  CENTER_CROP_COVER
+}
+
+// Optional per-variant override of the print canvas a custom design is
+// rendered at. Deliberately NOT required for the feature to work - a
+// personalizable variant with no row here still gets a sensible built-in
+// default (see custom-designs/print-spec.util.ts's DEFAULT_PRINT_SPEC), so
+// the feature works immediately with zero admin setup; this table exists so
+// a real, model-specific print size can be configured later without a
+// schema change. `ProductVariant` was chosen over `Product`/`CaseType`
+// because print dimensions genuinely differ by exact phone model, not just
+// by case type - see docs/DECISIONS.md.
+model PrintSpecification {
+  id        String         @id @default(uuid())
+  variantId String         @unique
+  variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  widthPx  Int
+  heightPx Int
+  // Informational metadata about the target print, not used in any pixel
+  // math here - the actual raster output is always exactly widthPx x
+  // heightPx; DPI only tells production software/printers the intended
+  // physical size (e.g. 1800x3600 @ 300dpi = 6in x 12in).
+  dpi Int @default(300)
+  // Pixels of guaranteed-blank border kept inside widthPx/heightPx on every
+  // edge - informational only for this initial implementation (not yet
+  // subtracted from the crop target), reserved for a future "keep-out zone"
+  // preview. See docs/DECISIONS.md.
+  safeMarginPx Int?
+
+  outputFormat  PrintOutputFormat @default(JPEG)
+  outputQuality Int               @default(92)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("print_specifications")
+}
+
+// A customer's uploaded design for one specific, active ProductVariant.
+// Created unattached (scoped only to the uploading guest's `cartId`, same
+// pattern as PaymentReceipt) by CustomDesignsService.upload, which runs the
+// full pipeline SYNCHRONOUSLY (decode/validate -> center-crop+cover print
+// file -> mockup preview) before this row is ever created - a row only
+// ever exists in a complete, usable state; a failed upload persists
+// nothing (see CustomDesignsService and docs/DECISIONS.md). Attached to at
+// most one CartItem via CartItem.customDesignId (the FK lives there, not
+// here, so detaching/replacing never has to touch this row).
+//
+// Never deleted by CartService when detached from a cart item (only the
+// CartItem's FK is cleared) - its files must keep existing on disk/storage
+// for as long as any OrderItemCustomDesign might still reference them via
+// `sourceCustomDesignId`, and simply remains a re-attachable, still-owned
+// upload otherwise.
+model CustomDesign {
+  id String @id @default(uuid())
+
+  cartId String
+  cart   Cart   @relation(fields: [cartId], references: [id], onDelete: Cascade)
+
+  variantId String
+  variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Restrict)
+
+  // The untouched upload, kept exactly as received (see requirement:
+  // "retain the uploaded source unchanged").
+  originalStorageKey String
+  originalMimeType   String
+  originalSizeBytes  Int
+  originalWidth      Int
+  originalHeight     Int
+
+  // High-quality render at the print spec's exact canvas, automatic
+  // center-crop+cover, no upscaling - this is the file production actually
+  // uses. Never publicly servable - see custom-design-storage.
+  printFileStorageKey String
+  printFileMimeType   String
+  printFileSizeBytes  Int
+
+  // The design composited onto the one fixed generic mockup asset, for
+  // storefront display only - never the file production uses.
+  previewStorageKey String
+  previewMimeType   String
+  previewSizeBytes  Int
+
+  fitMode CustomDesignFitMode @default(CENTER_CROP_COVER)
+
+  // Snapshot of the PrintSpecification (row or DEFAULT_PRINT_SPEC) actually
+  // used to generate printFileStorageKey - so a later admin change to
+  // PrintSpecification, or the variant losing its override, never changes
+  // what this design was actually rendered at.
+  printWidthPx       Int
+  printHeightPx      Int
+  printDpi           Int
+  printSafeMarginPx  Int?
+  printOutputFormat  PrintOutputFormat
+  printOutputQuality Int
+
+  cartItem           CartItem?
+  orderItemSnapshots OrderItemCustomDesign[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([cartId])
+  @@index([variantId])
+  @@map("custom_designs")
+}
+
+// Immutable copy of a CustomDesign's file references and print
+// configuration, made at checkout (OrdersService.createOrder) - exactly
+// like every other OrderItem snapshot field (productNameEn, variantSku,
+// etc), so the order keeps its own original/print-ready/preview files even
+// if the source CustomDesign (and the cart it belonged to) is later changed
+// or its cart item's design is replaced. `sourceCustomDesignId` is kept
+// only for admin traceability and is never re-read for anything that must
+// survive the source row changing - every field this row actually needs is
+// duplicated here.
+model OrderItemCustomDesign {
+  id String @id @default(uuid())
+
+  orderItemId String    @unique
+  orderItem   OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+
+  sourceCustomDesignId String?
+  sourceCustomDesign   CustomDesign? @relation(fields: [sourceCustomDesignId], references: [id], onDelete: SetNull)
+
+  originalStorageKey String
+  originalMimeType   String
+  originalSizeBytes  Int
+  originalWidth      Int
+  originalHeight     Int
+
+  printFileStorageKey String
+  printFileMimeType   String
+  printFileSizeBytes  Int
+
+  previewStorageKey String
+  previewMimeType   String
+  previewSizeBytes  Int
+
+  fitMode CustomDesignFitMode
+
+  printWidthPx       Int
+  printHeightPx      Int
+  printDpi           Int
+  printSafeMarginPx  Int?
+  printOutputFormat  PrintOutputFormat
+  printOutputQuality Int
+
+  // When the source CustomDesign was originally created (uploaded) - not
+  // when this snapshot/order was created, which is OrderItem.createdAt /
+  // Order.createdAt already.
+  designCreatedAt DateTime
+
+  @@map("order_item_custom_designs")
 }
 
 // ---------------------------------------------------------------------------
@@ -785,7 +1003,19 @@ model OrderItem {
   caseTypeNameEn   String?
   caseTypeNameAr   String?
 
+  // Copied verbatim from CartItem.note at order-creation time (see
+  // OrdersService.createOrder) so it survives the cart being cleared. A
+  // cart line split across multiple OrderItem rows (bundle pairing) gets
+  // the same note copied onto every resulting row.
+  note String?
+
   unitPrice    Int
+  // The isPersonalizable surcharge (ProductVariant.customizationPrice)
+  // actually charged, already folded into `unitPrice` above (see
+  // cart-pricing.service.ts's `effectiveUnitPrice`) - kept separately too
+  // so admin views can show the base price and the customization surcharge
+  // apart without recomputing anything. Always 0 for a non-personalized line.
+  customizationPrice Int @default(0)
   quantity     Int
   lineSubtotal Int
   // Coupon-only discount allocated to this line - see allocateDiscount()
@@ -805,7 +1035,8 @@ model OrderItem {
 
   lineTotal Int
 
-  returns OrderItemReturn[]
+  returns      OrderItemReturn[]
+  customDesign OrderItemCustomDesign?
 
   createdAt DateTime @default(now())
 

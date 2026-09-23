@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { Prisma, ProductVariant } from '@prisma/client';
+import { Prisma, PrintSpecification, ProductVariant } from '@prisma/client';
 import {
   DuplicateResourceException,
   ResourceNotFoundException,
@@ -10,6 +10,7 @@ import { AuditLogService } from '../../audit-log/audit-log.service';
 import type { AuthenticatedStaff } from '../../auth/types/authenticated-staff.type';
 import { CreateVariantDto } from './dto/create-variant.dto';
 import { UpdateVariantDto } from './dto/update-variant.dto';
+import { UpsertPrintSpecDto } from './dto/upsert-print-spec.dto';
 
 @Injectable()
 export class VariantsService {
@@ -26,6 +27,7 @@ export class VariantsService {
     await this.assertProductExists(productId);
     this.assertCompareAtPriceIsValid(dto.price, dto.compareAtPrice);
     this.assertStockConfigurationIsValid(dto.stockItemId, dto.isUnlimitedStock);
+    this.assertCustomizationPriceIsValid(dto.isPersonalizable ?? false, dto.customizationPrice);
 
     try {
       const variant = await this.prisma.productVariant.create({
@@ -49,7 +51,12 @@ export class VariantsService {
     await this.assertProductExists(productId);
     return this.prisma.productVariant.findMany({
       where: { productId },
-      include: { phoneModel: { include: { brand: true } }, caseType: true, stockItem: true },
+      include: {
+        phoneModel: { include: { brand: true } },
+        caseType: true,
+        stockItem: true,
+        printSpecification: true,
+      },
       orderBy: { createdAt: 'asc' },
     });
   }
@@ -57,7 +64,12 @@ export class VariantsService {
   async findOneForProduct(productId: string, variantId: string): Promise<ProductVariant> {
     const variant = await this.prisma.productVariant.findFirst({
       where: { id: variantId, productId },
-      include: { phoneModel: { include: { brand: true } }, caseType: true, stockItem: true },
+      include: {
+        phoneModel: { include: { brand: true } },
+        caseType: true,
+        stockItem: true,
+        printSpecification: true,
+      },
     });
     if (!variant) {
       throw new ResourceNotFoundException('ProductVariant', variantId);
@@ -81,6 +93,10 @@ export class VariantsService {
     this.assertStockConfigurationIsValid(
       dto.stockItemId === undefined ? (existing.stockItemId ?? undefined) : dto.stockItemId,
       dto.isUnlimitedStock === undefined ? existing.isUnlimitedStock : dto.isUnlimitedStock,
+    );
+    this.assertCustomizationPriceIsValid(
+      dto.isPersonalizable === undefined ? existing.isPersonalizable : dto.isPersonalizable,
+      dto.customizationPrice === undefined ? existing.customizationPrice : dto.customizationPrice,
     );
 
     try {
@@ -126,6 +142,81 @@ export class VariantsService {
           'by a StockItem or explicitly unlimited, not both',
       );
     }
+  }
+
+  /** customizationPrice is only meaningful for an isPersonalizable variant - a nonzero value on a non-personalizable one is almost certainly a mistake, so it's rejected outright rather than silently ignored. */
+  private assertCustomizationPriceIsValid(
+    isPersonalizable: boolean,
+    customizationPrice: number | undefined,
+  ): void {
+    if (!isPersonalizable && customizationPrice) {
+      throw new BadRequestException(
+        'customizationPrice can only be set on a variant with isPersonalizable: true',
+      );
+    }
+  }
+
+  /**
+   * Configures (or reconfigures) this variant's print canvas override - see
+   * PrintSpecification in prisma/schema.prisma. A personalizable variant
+   * with no row here still works, using DEFAULT_PRINT_SPEC (see
+   * custom-designs/print-spec.util.ts).
+   */
+  async upsertPrintSpec(
+    productId: string,
+    variantId: string,
+    dto: UpsertPrintSpecDto,
+    actor: AuthenticatedStaff,
+  ): Promise<PrintSpecification> {
+    await this.findOneForProduct(productId, variantId);
+
+    const printSpec = await this.prisma.printSpecification.upsert({
+      where: { variantId },
+      create: {
+        variantId,
+        widthPx: dto.widthPx,
+        heightPx: dto.heightPx,
+        dpi: dto.dpi ?? 300,
+        safeMarginPx: dto.safeMarginPx,
+        outputFormat: dto.outputFormat,
+        outputQuality: dto.outputQuality,
+      },
+      update: {
+        widthPx: dto.widthPx,
+        heightPx: dto.heightPx,
+        ...(dto.dpi !== undefined ? { dpi: dto.dpi } : {}),
+        safeMarginPx: dto.safeMarginPx,
+        ...(dto.outputFormat !== undefined ? { outputFormat: dto.outputFormat } : {}),
+        ...(dto.outputQuality !== undefined ? { outputQuality: dto.outputQuality } : {}),
+      },
+    });
+
+    await this.auditLogService.record({
+      staffUserId: actor.id,
+      action: 'product_variant.print_spec.upsert',
+      entityType: 'ProductVariant',
+      entityId: variantId,
+      metadata: { printSpec },
+    });
+
+    return printSpec;
+  }
+
+  /** Reverts this variant to DEFAULT_PRINT_SPEC (removes any override row). */
+  async deletePrintSpec(
+    productId: string,
+    variantId: string,
+    actor: AuthenticatedStaff,
+  ): Promise<void> {
+    await this.findOneForProduct(productId, variantId);
+    await this.prisma.printSpecification.deleteMany({ where: { variantId } });
+
+    await this.auditLogService.record({
+      staffUserId: actor.id,
+      action: 'product_variant.print_spec.delete',
+      entityType: 'ProductVariant',
+      entityId: variantId,
+    });
   }
 
   private async assertProductExists(productId: string): Promise<void> {

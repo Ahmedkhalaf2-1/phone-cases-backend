@@ -192,6 +192,43 @@ describe('Orders (e2e)', () => {
       expect(order.items[0].productNameEn).toBe('Space');
     });
 
+    it('carries a cart item note through to the guest and admin order views', async () => {
+      const rate = await seedEgyptShipping(5000);
+      const { variant } = await seedPublishedVariant(10000);
+      const cartRes = await request(app.getHttpServer()).post('/api/v1/cart').expect(201);
+      const token = cartRes.body.token as string;
+      await request(app.getHttpServer())
+        .post('/api/v1/cart/items')
+        .set('X-Cart-Token', token)
+        .send({
+          variantId: variant.id,
+          quantity: 1,
+          note: '  please put the case in a black box  ',
+        })
+        .expect(201);
+      const total = await quoteTotal(token, rate.id);
+
+      const created = await request(app.getHttpServer())
+        .post('/api/v1/orders')
+        .set('X-Cart-Token', token)
+        .send(orderBody({ shippingRateId: rate.id, expectedTotal: total }))
+        .expect(201);
+      expect(created.body.items[0].note).toBe('please put the case in a black box');
+
+      const tracked = await request(app.getHttpServer())
+        .get(`/api/v1/orders/track/${created.body.trackingToken}`)
+        .expect(200);
+      expect(tracked.body.items[0].note).toBe('please put the case in a black box');
+
+      const owner = await createStaffAndLogin(app, StaffRole.OWNER_ADMIN);
+      const order = await prisma.order.findFirstOrThrow();
+      const admin = await request(app.getHttpServer())
+        .get(`/api/v1/admin/orders/${order.id}`)
+        .set('Authorization', `Bearer ${owner.accessToken}`)
+        .expect(200);
+      expect(admin.body.items[0].note).toBe('please put the case in a black box');
+    });
+
     it('normalizes Arabic-Indic digits in the phone number', async () => {
       const rate = await seedEgyptShipping();
       const { variant } = await seedPublishedVariant(10000);

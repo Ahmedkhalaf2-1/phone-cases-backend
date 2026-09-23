@@ -169,6 +169,34 @@ class EnvironmentVariables {
   @IsInt()
   @Min(1)
   RECEIPT_MAX_PENDING_PER_CART: number = 5;
+
+  // Personalized Phone Case uploads (original/print-ready/preview) - stored
+  // privately, like RECEIPT_LOCAL_DIR, never under MEDIA_LOCAL_DIR. See
+  // src/modules/custom-designs/storage.
+  @IsString()
+  @IsNotEmpty()
+  CUSTOM_DESIGN_LOCAL_DIR: string = 'private-uploads/custom-designs';
+
+  // Per product requirement: max 10 MB.
+  @IsInt()
+  @Min(1)
+  CUSTOM_DESIGN_MAX_FILE_SIZE_BYTES: number = 10 * 1024 * 1024;
+
+  // Caps how many designs one guest cart can upload, independent of the
+  // global upload rate limit - mirrors RECEIPT_MAX_PENDING_PER_CART.
+  @IsInt()
+  @Min(1)
+  CUSTOM_DESIGN_MAX_PER_CART: number = 20;
+
+  // Optional path (relative to the project root) to a real, professionally
+  // designed generic phone/case mockup PNG/WebP to composite preview
+  // designs onto. Left unset, a simple built-in placeholder mockup is
+  // generated in-process (see custom-designs/mockup.util.ts) so the feature
+  // works with zero asset setup - swap in a real asset later by setting
+  // this, no code change required.
+  @IsOptional()
+  @IsString()
+  CUSTOM_DESIGN_MOCKUP_IMAGE_PATH?: string;
 }
 
 export function validateEnv(config: Record<string, unknown>): EnvironmentVariables {

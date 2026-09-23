@@ -32,6 +32,7 @@ export const CART_INCLUDE = {
           media: PRIMARY_MEDIA_INCLUDE,
         },
       },
+      customDesign: true,
     },
     orderBy: { createdAt: 'asc' as const },
   },
@@ -51,6 +52,7 @@ export interface CartItemView {
   phoneModel: { slug: string; name: string; brand: string } | null;
   caseType: { slug: string; name: string } | null;
   thumbnail: { url: string; altText: string } | null;
+  note: string | null;
   unitPrice: number;
   quantity: number;
   lineSubtotal: number;
@@ -58,6 +60,25 @@ export interface CartItemView {
   unavailableReason?: string;
   /** This line's share of any applied bundle discount(s) - see bundleDiscountTotal. */
   bundleDiscount: number;
+  isPersonalized: boolean;
+  customDesign: { id: string } | null;
+}
+
+/**
+ * The single source of truth for what a customer actually pays per unit of
+ * a variant - `variant.price` plus its personalization surcharge, when
+ * applicable. Used here, in OrdersService.createOrder and nowhere else, so
+ * cart pricing, checkout quoting and order creation are guaranteed to agree
+ * - the same pattern this file already uses for `computeDiscount` and
+ * bundle pricing (see docs/BUSINESS_RULES.md). Never trusted from the
+ * client.
+ */
+export function effectiveUnitPrice(variant: {
+  price: number;
+  isPersonalizable: boolean;
+  customizationPrice: number;
+}): number {
+  return variant.price + (variant.isPersonalizable ? variant.customizationPrice : 0);
 }
 
 export interface CartView {
@@ -156,7 +177,7 @@ export class CartPricingService {
         lineIndex,
         variantId: item.variant.id,
         phoneModelId: item.variant.phoneModelId,
-        unitPrice: item.variant.price,
+        unitPrice: effectiveUnitPrice(item.variant),
         quantity: item.quantity,
         currency: item.variant.currency,
       }));
@@ -220,7 +241,18 @@ export class CartPricingService {
       unavailableReason = 'This item is no longer available';
     } else if (!hasStock) {
       unavailableReason = 'This item is currently out of stock';
+    } else if (variant.isPersonalizable && !item.customDesignId) {
+      // Mirrors every other checkout-blocking rule here: an unavailable
+      // item stops checkout (OrdersService.createOrder) the same way as an
+      // unpublished product or out-of-stock line - see product requirement
+      // "personalized variants require a valid completed custom design
+      // before checkout". A design's own variant match/ownership was
+      // already enforced when it was attached (CartService), so its mere
+      // presence here is sufficient.
+      unavailableReason = 'This item needs a custom design attached before checkout';
     }
+
+    const unitPrice = effectiveUnitPrice(variant);
 
     return {
       id: item.id,
@@ -246,12 +278,15 @@ export class CartPricingService {
           }
         : null,
       thumbnail: this.pickThumbnail(variant, locale),
-      unitPrice: variant.price,
+      note: item.note,
+      unitPrice,
       quantity: item.quantity,
-      lineSubtotal: variant.price * item.quantity,
+      lineSubtotal: unitPrice * item.quantity,
       isAvailable: !unavailableReason,
       unavailableReason,
       bundleDiscount: 0,
+      isPersonalized: item.isPersonalized,
+      customDesign: item.customDesign ? { id: item.customDesign.id } : null,
     };
   }
 

@@ -42,6 +42,7 @@ const PRODUCT_VARIANT_RELATIONS_INCLUDE = {
   caseType: true,
   stockItem: true,
   media: VARIANT_THUMBNAIL_INCLUDE,
+  printSpecification: true,
 } satisfies Prisma.ProductVariantInclude;
 
 const ADMIN_PRODUCT_INCLUDE = {

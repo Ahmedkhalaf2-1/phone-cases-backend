@@ -45,6 +45,14 @@ function toPublicVariant(
     currency: variant.currency,
     isAvailable: isVariantAvailable(variant),
     thumbnail: pickVariantThumbnail(variant, product, locale),
+    // Tells the storefront whether to offer the "upload your design" flow
+    // (POST /cart/custom-designs) for this variant at all - see
+    // docs/DECISIONS.md. customizationPrice is the additional charge
+    // already folded into cart/checkout pricing server-side
+    // (cart-pricing.service.ts's effectiveUnitPrice) once a design is
+    // attached; shown here only so the storefront can display it upfront.
+    isPersonalizable: variant.isPersonalizable,
+    customizationPrice: variant.isPersonalizable ? variant.customizationPrice : 0,
     phoneModel: variant.phoneModel
       ? {
           id: variant.phoneModel.id,

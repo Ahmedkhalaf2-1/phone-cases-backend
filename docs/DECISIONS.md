@@ -789,3 +789,71 @@ quantity is the sum of only ACTIVE/CONSUMED ones, and the order is only intact w
 stock item's coverage meets its requirement. No new persisted data or migration needed -
 `StockReservation` already recorded `stockItemId` and `quantity` per row, which is all the check
 needs. See docs/BUSINESS_RULES.md §37.
+
+### 49. Product images broken (blank icon) on the storefront despite correct URLs and CORS
+
+Confirmed present: every `<img>` tag on the frontend's product grid rendered a broken-image
+placeholder, even though `GET /products` returned correct absolute image URLs
+(`http://<host>:3010/uploads/<file>`) and those URLs returned `200 OK` with the right
+`Content-Type` and `Access-Control-Allow-Origin` when fetched directly. Root cause: `helmet()` in
+`main.ts` was applied with its defaults, which set `Cross-Origin-Resource-Policy: same-origin` on
+every response, including the static `/uploads` files served via `useStaticAssets`. Browsers enforce
+CORP independently of CORS - it blocks a cross-origin `<img src>` embed even when
+`Access-Control-Allow-Origin` is correctly present, and does so silently (no CORS error, no 404, just
+a broken icon), which is why the frontend's own CORS/URL/next-image checks all came back clean. Fixed
+by relaxing CORP globally to `cross-origin`: this API serves a public storefront catalog with no
+cross-origin-sensitive resources, so there's no confidentiality reason to keep the stricter default.
+
+### 50. Personalized Phone Case: schema placement, synchronous pipeline, and the cart-item merge constraint
+
+Three judgment calls this feature needed that weren't fully dictated by the brief:
+
+**Print spec lives on `ProductVariant`, with a code-level default, not a required admin setup step.**
+A new `PrintSpecification` table is a 1:1 OPTIONAL override on `ProductVariant` (print dimensions
+genuinely differ by exact phone model, not just by case type - `ProductVariant` was the only catalog
+level that could express that). A personalizable variant with no row there still works immediately,
+using `DEFAULT_PRINT_SPEC` (`src/modules/custom-designs/print-spec.util.ts`) - the schema is "ready
+for per-variant overrides later" per the brief without making a real print size a blocking admin
+prerequisite before the feature can be used at all.
+
+**`CustomDesign` generation is fully synchronous, on the upload request itself - no `PENDING`/
+`PROCESSING` status, no job queue.** `sharp` resizing a single upload is fast enough that a queue
+would add operational complexity (a worker, a retry policy, a way to notify the client the design
+became ready) for no real benefit here. A row is only ever created in a complete, immediately-usable
+state (`CustomDesignsService.uploadForCart`: decode -> validate resolution -> render print file ->
+render preview -> save all three -> create the row, with a cleanup of already-saved files if the DB
+write fails) - a failed upload persists nothing rather than leaving a broken row behind. If a future
+requirement needs heavier processing (e.g. AI upscaling, human review), this is the seam to add an
+actual status field/queue at.
+
+**A personalized `CartItem` is never merged with another line, unlike a normal one - enforced by a
+hand-written PARTIAL unique index, not Prisma's schema DSL.** The existing rule ("adding an
+already-in-cart variant again merges quantities") is right for a plain product but wrong here: two
+uploads for the same variant are two different designs and must stay two different, independently
+priced/attachable cart lines. `CartItem.isPersonalized` records which regime a line was created
+under, and the migration replaces the old `UNIQUE(cartId, variantId)` with
+`UNIQUE(cartId, variantId) WHERE NOT isPersonalized` (Prisma's schema DSL cannot express a partial
+index, so `prisma/schema.prisma`'s `CartItem` model documents this in a comment instead of a
+`@@unique` attribute - see the migration SQL). `CartService.addItem`/`replaceItemVariant` branch on
+`variant.isPersonalizable` accordingly; the atomic `upsert` the old single-line path used no longer
+has a matching unique key to target, so it was replaced with a plain create that catches the partial
+index's `P2002` and folds the request into whichever line won a concurrent race - functionally
+equivalent to the old upsert for that one edge case.
+
+**Pricing:** `ProductVariant.customizationPrice` is folded into the per-unit price through one shared
+function, `effectiveUnitPrice` (`cart-pricing.service.ts`), used identically by cart pricing, checkout
+quoting and order creation - the same "one pure function, three call sites" pattern this codebase
+already uses for bundle/discount math, so none of the three can silently drift from the others.
+
+**Mockup asset:** no real "generic phone case" mockup image was provided. `MockupService` generates a
+simple placeholder (an SVG rounded-rect case silhouette with a camera cutout, rasterized once and
+cached) so the preview flow works with zero asset setup; `CUSTOM_DESIGN_MOCKUP_IMAGE_PATH` swaps in a
+real designed asset later with no code change - see env.validation.ts and the implementation summary
+message for what that asset needs to look like.
+
+**Order snapshotting:** `OrderItemCustomDesign` (1:1 on `OrderItem`) duplicates every file
+reference/print-config field a `CustomDesign` has, exactly like `OrderItem`'s existing
+`productNameEn`/`variantSku`/etc snapshot fields - so the order keeps its own original/print-ready/
+preview files even if the cart's `CustomDesign` is later replaced or its cart item's design detached.
+`sourceCustomDesignId` (`SetNull` on delete) is kept only for admin traceability and is never
+re-read for anything the snapshot needs to survive on its own.

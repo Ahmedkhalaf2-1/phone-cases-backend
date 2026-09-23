@@ -6,6 +6,7 @@ import {
   IsPositive,
   IsString,
   IsUUID,
+  Min,
   MinLength,
 } from 'class-validator';
 
@@ -62,4 +63,26 @@ export class CreateVariantDto {
   @IsOptional()
   @IsBoolean()
   isUnlimitedStock?: boolean;
+
+  @ApiPropertyOptional({
+    default: false,
+    description:
+      'Explicit opt-in: this variant supports the Personalized Phone Case feature (customer image ' +
+      'upload, automatic center-crop+cover print file, mockup preview). Never inferred - see ' +
+      'docs/DECISIONS.md.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  isPersonalizable?: boolean;
+
+  @ApiPropertyOptional({
+    default: 0,
+    description:
+      'Additional charge (integer minor units, same currency as price) applied when a custom ' +
+      'design is attached. Only meaningful while isPersonalizable is true.',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  customizationPrice?: number;
 }

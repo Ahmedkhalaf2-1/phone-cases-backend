@@ -15,7 +15,11 @@ async function bootstrap(): Promise<void> {
   const configService = app.get(ConfigService);
   const logger = new Logger('Bootstrap');
 
-  app.use(helmet());
+  // Public storefront imagery is meant to be embedded cross-origin (the
+  // frontend runs on a different host/port than this API), so relax
+  // Helmet's default same-origin Cross-Origin-Resource-Policy globally -
+  // this API serves no sensitive cross-origin-readable resources.
+  app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
   app.enableCors({
     origin: configService
       .getOrThrow<string>('CORS_ORIGINS')

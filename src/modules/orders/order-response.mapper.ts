@@ -56,6 +56,7 @@ export function toGuestOrderView(order: OrderWithItems, locale: Locale = DEFAULT
       caseTypeName: item.caseTypeNameEn
         ? pickLocalized(item.caseTypeNameEn, item.caseTypeNameAr, locale)
         : null,
+      note: item.note,
       unitPrice: item.unitPrice,
       quantity: item.quantity,
       lineSubtotal: item.lineSubtotal,

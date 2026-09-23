@@ -1,0 +1,1739 @@
+{
+  "mode": "commit",
+  "sourceDir": "photos",
+  "startedAt": "2026-09-21T20:31:00.423Z",
+  "scannedFiles": 555,
+  "excludedNonDesign": [
+    {
+      "filename": "imgi_108_WhatsApp_Image_2025-07-23_at_4.25.08_PM_70f1c6cf-875e-4da8-9158-cf9c336a0241.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_109_WhatsApp_Image_2025-07-23_at_4.25.08_PM_70f1c6cf-875e-4da8-9158-cf9c336a0241.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_110_WhatsApp_Image_2025-07-23_at_4.25.08_PM_70f1c6cf-875e-4da8-9158-cf9c336a0241.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_111_WhatsApp_Image_2025-07-23_at_4.25.08_PM_70f1c6cf-875e-4da8-9158-cf9c336a0241.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_112_WhatsApp_Image_2025-07-23_at_4.25.08_PM_70f1c6cf-875e-4da8-9158-cf9c336a0241.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_113_WhatsApp_Image_2025-07-23_at_4.25.08_PM_70f1c6cf-875e-4da8-9158-cf9c336a0241.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_114_WhatsApp_Image_2025-07-23_at_4.25.08_PM_70f1c6cf-875e-4da8-9158-cf9c336a0241.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_115_WhatsApp_Image_2025-07-23_at_4.25.08_PM_70f1c6cf-875e-4da8-9158-cf9c336a0241.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_116_WhatsApp_Image_2025-07-23_at_4.25.08_PM_70f1c6cf-875e-4da8-9158-cf9c336a0241.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_12_WhatsApp_Image_2025-07-23_at_4.25.08_PM_70f1c6cf-875e-4da8-9158-cf9c336a0241.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_165_WhatsApp_Image_2025-07-23_at_4.25.08_PM_c717deba-8d6b-4800-ab3b-b1e9e3ea82bf.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_166_WhatsApp_Image_2025-07-23_at_4.25.08_PM_c717deba-8d6b-4800-ab3b-b1e9e3ea82bf.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_167_WhatsApp_Image_2025-07-23_at_4.25.08_PM_c717deba-8d6b-4800-ab3b-b1e9e3ea82bf.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_168_WhatsApp_Image_2025-07-23_at_4.25.08_PM_c717deba-8d6b-4800-ab3b-b1e9e3ea82bf.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_169_WhatsApp_Image_2025-07-23_at_4.25.08_PM_c717deba-8d6b-4800-ab3b-b1e9e3ea82bf.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_170_WhatsApp_Image_2025-07-23_at_4.25.08_PM_c717deba-8d6b-4800-ab3b-b1e9e3ea82bf.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_171_WhatsApp_Image_2025-07-23_at_4.25.08_PM_c717deba-8d6b-4800-ab3b-b1e9e3ea82bf.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_172_WhatsApp_Image_2025-07-23_at_4.25.08_PM_c717deba-8d6b-4800-ab3b-b1e9e3ea82bf.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_173_WhatsApp_Image_2025-07-23_at_4.25.08_PM_c717deba-8d6b-4800-ab3b-b1e9e3ea82bf.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_190_WhatsApp_Image_2025-07-23_at_4.25.08_PM_54d64069-dc45-4063-a1b2-85df12299741.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_191_WhatsApp_Image_2025-07-23_at_4.25.08_PM_54d64069-dc45-4063-a1b2-85df12299741.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_192_WhatsApp_Image_2025-07-23_at_4.25.08_PM_54d64069-dc45-4063-a1b2-85df12299741.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_193_WhatsApp_Image_2025-07-23_at_4.25.08_PM_54d64069-dc45-4063-a1b2-85df12299741.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_194_WhatsApp_Image_2025-07-23_at_4.25.08_PM_54d64069-dc45-4063-a1b2-85df12299741.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_195_WhatsApp_Image_2025-07-23_at_4.25.08_PM_54d64069-dc45-4063-a1b2-85df12299741.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_196_WhatsApp_Image_2025-07-23_at_4.25.08_PM_54d64069-dc45-4063-a1b2-85df12299741.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_197_WhatsApp_Image_2025-07-23_at_4.25.08_PM_54d64069-dc45-4063-a1b2-85df12299741.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_198_WhatsApp_Image_2025-07-23_at_4.25.08_PM_54d64069-dc45-4063-a1b2-85df12299741.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_19_WhatsApp_Image_2025-07-23_at_4.25.08_PM_c717deba-8d6b-4800-ab3b-b1e9e3ea82bf.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_1_472335667_122109366548661290_338071631450135772_n_2_32ee1b62-5180-4150-83be-cebd11b96cbd.png",
+      "reason": "Shop's own \"INCASE\" logo, not a product design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_22_WhatsApp_Image_2025-07-23_at_4.25.08_PM_54d64069-dc45-4063-a1b2-85df12299741.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_231_WhatsApp_Image_2025-07-23_at_4.25.08_PM_4d104ac7-4520-4a78-bcd1-a9c3ae62ec08.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_232_WhatsApp_Image_2025-07-23_at_4.25.08_PM_4d104ac7-4520-4a78-bcd1-a9c3ae62ec08.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_233_WhatsApp_Image_2025-07-23_at_4.25.08_PM_4d104ac7-4520-4a78-bcd1-a9c3ae62ec08.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_234_WhatsApp_Image_2025-07-23_at_4.25.08_PM_4d104ac7-4520-4a78-bcd1-a9c3ae62ec08.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_235_WhatsApp_Image_2025-07-23_at_4.25.08_PM_4d104ac7-4520-4a78-bcd1-a9c3ae62ec08.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_236_WhatsApp_Image_2025-07-23_at_4.25.08_PM_4d104ac7-4520-4a78-bcd1-a9c3ae62ec08.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_237_WhatsApp_Image_2025-07-23_at_4.25.08_PM_4d104ac7-4520-4a78-bcd1-a9c3ae62ec08.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_238_WhatsApp_Image_2025-07-23_at_4.25.08_PM_4d104ac7-4520-4a78-bcd1-a9c3ae62ec08.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_239_WhatsApp_Image_2025-07-23_at_4.25.08_PM_4d104ac7-4520-4a78-bcd1-a9c3ae62ec08.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_27_WhatsApp_Image_2025-07-23_at_4.25.08_PM_4d104ac7-4520-4a78-bcd1-a9c3ae62ec08.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_2_472335667_122109366548661290_338071631450135772_n_2_32ee1b62-5180-4150-83be-cebd11b96cbd.png",
+      "reason": "Shop's own \"INCASE\" logo, not a product design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_3_472335667_122109366548661290_338071631450135772_n_2_32ee1b62-5180-4150-83be-cebd11b96cbd.png",
+      "reason": "Shop's own \"INCASE\" logo, not a product design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_520_472335667_122109366548661290_338071631450135772_n_2.png",
+      "reason": "Shop's own \"INCASE\" logo, not a product design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_521_472335667_122109366548661290_338071631450135772_n_2.png",
+      "reason": "Shop's own \"INCASE\" logo, not a product design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_522_472335667_122109366548661290_338071631450135772_n_2.png",
+      "reason": "Shop's own \"INCASE\" logo, not a product design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_523_472335667_122109366548661290_338071631450135772_n_2.png",
+      "reason": "Shop's own \"INCASE\" logo, not a product design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_524_472335667_122109366548661290_338071631450135772_n_2.png",
+      "reason": "Shop's own \"INCASE\" logo, not a product design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_525_472335667_122109366548661290_338071631450135772_n_2.png",
+      "reason": "Shop's own \"INCASE\" logo, not a product design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_526_472335667_122109366548661290_338071631450135772_n_2.png",
+      "reason": "Shop's own \"INCASE\" logo, not a product design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_527_472335667_122109366548661290_338071631450135772_n_2.png",
+      "reason": "Shop's own \"INCASE\" logo, not a product design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_528_472335667_122109366548661290_338071631450135772_n_2.png",
+      "reason": "Shop's own \"INCASE\" logo, not a product design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_529_472335667_122109366548661290_338071631450135772_n_2.png",
+      "reason": "Shop's own \"INCASE\" logo, not a product design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_530_default.svg",
+      "reason": "Unsupported file type \".svg\" - the media system only accepts image/jpeg, image/jpeg, image/png, image/webp, image/gif."
+    },
+    {
+      "filename": "imgi_531_default.svg",
+      "reason": "Unsupported file type \".svg\" - the media system only accepts image/jpeg, image/jpeg, image/png, image/webp, image/gif."
+    },
+    {
+      "filename": "imgi_532_default.svg",
+      "reason": "Unsupported file type \".svg\" - the media system only accepts image/jpeg, image/jpeg, image/png, image/webp, image/gif."
+    },
+    {
+      "filename": "imgi_533_default.svg",
+      "reason": "Unsupported file type \".svg\" - the media system only accepts image/jpeg, image/jpeg, image/png, image/webp, image/gif."
+    },
+    {
+      "filename": "imgi_534_default.svg",
+      "reason": "Unsupported file type \".svg\" - the media system only accepts image/jpeg, image/jpeg, image/png, image/webp, image/gif."
+    },
+    {
+      "filename": "imgi_535_default.svg",
+      "reason": "Unsupported file type \".svg\" - the media system only accepts image/jpeg, image/jpeg, image/png, image/webp, image/gif."
+    },
+    {
+      "filename": "imgi_536_default.svg",
+      "reason": "Unsupported file type \".svg\" - the media system only accepts image/jpeg, image/jpeg, image/png, image/webp, image/gif."
+    },
+    {
+      "filename": "imgi_537_default.svg",
+      "reason": "Unsupported file type \".svg\" - the media system only accepts image/jpeg, image/jpeg, image/png, image/webp, image/gif."
+    },
+    {
+      "filename": "imgi_538_default.svg",
+      "reason": "Unsupported file type \".svg\" - the media system only accepts image/jpeg, image/jpeg, image/png, image/webp, image/gif."
+    },
+    {
+      "filename": "imgi_539_default.svg",
+      "reason": "Unsupported file type \".svg\" - the media system only accepts image/jpeg, image/jpeg, image/png, image/webp, image/gif."
+    },
+    {
+      "filename": "imgi_540_default.svg",
+      "reason": "Unsupported file type \".svg\" - the media system only accepts image/jpeg, image/jpeg, image/png, image/webp, image/gif."
+    },
+    {
+      "filename": "imgi_541_default.svg",
+      "reason": "Unsupported file type \".svg\" - the media system only accepts image/jpeg, image/jpeg, image/png, image/webp, image/gif."
+    },
+    {
+      "filename": "imgi_542_default.svg",
+      "reason": "Unsupported file type \".svg\" - the media system only accepts image/jpeg, image/jpeg, image/png, image/webp, image/gif."
+    },
+    {
+      "filename": "imgi_543_default.svg",
+      "reason": "Unsupported file type \".svg\" - the media system only accepts image/jpeg, image/jpeg, image/png, image/webp, image/gif."
+    },
+    {
+      "filename": "imgi_544_default.svg",
+      "reason": "Unsupported file type \".svg\" - the media system only accepts image/jpeg, image/jpeg, image/png, image/webp, image/gif."
+    },
+    {
+      "filename": "imgi_545_default.svg",
+      "reason": "Unsupported file type \".svg\" - the media system only accepts image/jpeg, image/jpeg, image/png, image/webp, image/gif."
+    },
+    {
+      "filename": "imgi_546_default.svg",
+      "reason": "Unsupported file type \".svg\" - the media system only accepts image/jpeg, image/jpeg, image/png, image/webp, image/gif."
+    },
+    {
+      "filename": "imgi_547_default.svg",
+      "reason": "Unsupported file type \".svg\" - the media system only accepts image/jpeg, image/jpeg, image/png, image/webp, image/gif."
+    },
+    {
+      "filename": "imgi_548_default.svg",
+      "reason": "Unsupported file type \".svg\" - the media system only accepts image/jpeg, image/jpeg, image/png, image/webp, image/gif."
+    },
+    {
+      "filename": "imgi_549_default.svg",
+      "reason": "Unsupported file type \".svg\" - the media system only accepts image/jpeg, image/jpeg, image/png, image/webp, image/gif."
+    },
+    {
+      "filename": "imgi_550_default.svg",
+      "reason": "Unsupported file type \".svg\" - the media system only accepts image/jpeg, image/jpeg, image/png, image/webp, image/gif."
+    },
+    {
+      "filename": "imgi_551_default.svg",
+      "reason": "Unsupported file type \".svg\" - the media system only accepts image/jpeg, image/jpeg, image/png, image/webp, image/gif."
+    },
+    {
+      "filename": "imgi_552_default.svg",
+      "reason": "Unsupported file type \".svg\" - the media system only accepts image/jpeg, image/jpeg, image/png, image/webp, image/gif."
+    },
+    {
+      "filename": "imgi_553_default.svg",
+      "reason": "Unsupported file type \".svg\" - the media system only accepts image/jpeg, image/jpeg, image/png, image/webp, image/gif."
+    },
+    {
+      "filename": "imgi_554_default.svg",
+      "reason": "Unsupported file type \".svg\" - the media system only accepts image/jpeg, image/jpeg, image/png, image/webp, image/gif."
+    },
+    {
+      "filename": "imgi_555_default.svg",
+      "reason": "Unsupported file type \".svg\" - the media system only accepts image/jpeg, image/jpeg, image/png, image/webp, image/gif."
+    },
+    {
+      "filename": "imgi_556_default.svg",
+      "reason": "Unsupported file type \".svg\" - the media system only accepts image/jpeg, image/jpeg, image/png, image/webp, image/gif."
+    },
+    {
+      "filename": "imgi_557_default.svg",
+      "reason": "Unsupported file type \".svg\" - the media system only accepts image/jpeg, image/jpeg, image/png, image/webp, image/gif."
+    },
+    {
+      "filename": "imgi_558_default.svg",
+      "reason": "Unsupported file type \".svg\" - the media system only accepts image/jpeg, image/jpeg, image/png, image/webp, image/gif."
+    },
+    {
+      "filename": "imgi_559_default.svg",
+      "reason": "Unsupported file type \".svg\" - the media system only accepts image/jpeg, image/jpeg, image/png, image/webp, image/gif."
+    },
+    {
+      "filename": "imgi_560_default.svg",
+      "reason": "Unsupported file type \".svg\" - the media system only accepts image/jpeg, image/jpeg, image/png, image/webp, image/gif."
+    },
+    {
+      "filename": "imgi_561_default.svg",
+      "reason": "Unsupported file type \".svg\" - the media system only accepts image/jpeg, image/jpeg, image/png, image/webp, image/gif."
+    },
+    {
+      "filename": "imgi_562_default.svg",
+      "reason": "Unsupported file type \".svg\" - the media system only accepts image/jpeg, image/jpeg, image/png, image/webp, image/gif."
+    },
+    {
+      "filename": "imgi_563_default.svg",
+      "reason": "Unsupported file type \".svg\" - the media system only accepts image/jpeg, image/jpeg, image/png, image/webp, image/gif."
+    },
+    {
+      "filename": "imgi_564_default.svg",
+      "reason": "Unsupported file type \".svg\" - the media system only accepts image/jpeg, image/jpeg, image/png, image/webp, image/gif."
+    },
+    {
+      "filename": "imgi_565_default.svg",
+      "reason": "Unsupported file type \".svg\" - the media system only accepts image/jpeg, image/jpeg, image/png, image/webp, image/gif."
+    },
+    {
+      "filename": "imgi_566_default.svg",
+      "reason": "Unsupported file type \".svg\" - the media system only accepts image/jpeg, image/jpeg, image/png, image/webp, image/gif."
+    },
+    {
+      "filename": "imgi_567_default.svg",
+      "reason": "Unsupported file type \".svg\" - the media system only accepts image/jpeg, image/jpeg, image/png, image/webp, image/gif."
+    },
+    {
+      "filename": "imgi_568_default.svg",
+      "reason": "Unsupported file type \".svg\" - the media system only accepts image/jpeg, image/jpeg, image/png, image/webp, image/gif."
+    },
+    {
+      "filename": "imgi_569_t4s_loader.svg",
+      "reason": "Unsupported file type \".svg\" - the media system only accepts image/jpeg, image/jpeg, image/png, image/webp, image/gif."
+    },
+    {
+      "filename": "imgi_75_WhatsApp-Image-2024-08-18-at-9.14.03-PM_ecf5beee-b170-4a24-86b3-937c260ac50d.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_76_WhatsApp-Image-2024-08-18-at-9.14.03-PM_ecf5beee-b170-4a24-86b3-937c260ac50d.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_77_WhatsApp-Image-2024-08-18-at-9.14.03-PM_ecf5beee-b170-4a24-86b3-937c260ac50d.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_78_WhatsApp-Image-2024-08-18-at-9.14.03-PM_ecf5beee-b170-4a24-86b3-937c260ac50d.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_79_WhatsApp-Image-2024-08-18-at-9.14.03-PM_ecf5beee-b170-4a24-86b3-937c260ac50d.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_80_WhatsApp-Image-2024-08-18-at-9.14.03-PM_ecf5beee-b170-4a24-86b3-937c260ac50d.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_81_WhatsApp-Image-2024-08-18-at-9.14.03-PM_ecf5beee-b170-4a24-86b3-937c260ac50d.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_82_WhatsApp-Image-2024-08-18-at-9.14.03-PM_ecf5beee-b170-4a24-86b3-937c260ac50d.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_83_WhatsApp-Image-2024-08-18-at-9.14.03-PM_ecf5beee-b170-4a24-86b3-937c260ac50d.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    },
+    {
+      "filename": "imgi_8_WhatsApp-Image-2024-08-18-at-9.14.03-PM_ecf5beee-b170-4a24-86b3-937c260ac50d.jpg",
+      "reason": "Reused third-party stock photo of a plain clear case (third-party branding visible in shot), not an original design (confirmed by visual review)."
+    }
+  ],
+  "candidatesConsidered": 452,
+  "duplicateGroups": [
+    {
+      "chosenFilename": "imgi_107_MadridRoyaltyPhoneCase.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_100_MadridRoyaltyPhoneCase.jpg",
+        "imgi_101_MadridRoyaltyPhoneCase.jpg",
+        "imgi_102_MadridRoyaltyPhoneCase.jpg",
+        "imgi_103_MadridRoyaltyPhoneCase.jpg",
+        "imgi_104_MadridRoyaltyPhoneCase.jpg",
+        "imgi_105_MadridRoyaltyPhoneCase.jpg",
+        "imgi_106_MadridRoyaltyPhoneCase.jpg",
+        "imgi_11_MadridRoyaltyPhoneCase.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_99_d9369755-09ef-4045-b123-ac1c165d48c9copy9.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_10_d9369755-09ef-4045-b123-ac1c165d48c9copy9.jpg",
+        "imgi_92_d9369755-09ef-4045-b123-ac1c165d48c9copy9.jpg",
+        "imgi_93_d9369755-09ef-4045-b123-ac1c165d48c9copy9.jpg",
+        "imgi_94_d9369755-09ef-4045-b123-ac1c165d48c9copy9.jpg",
+        "imgi_95_d9369755-09ef-4045-b123-ac1c165d48c9copy9.jpg",
+        "imgi_96_d9369755-09ef-4045-b123-ac1c165d48c9copy9.jpg",
+        "imgi_97_d9369755-09ef-4045-b123-ac1c165d48c9copy9.jpg",
+        "imgi_98_d9369755-09ef-4045-b123-ac1c165d48c9copy9.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_124_d9369755-09ef-4045-b123-ac1c165d48c9copy5.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_117_d9369755-09ef-4045-b123-ac1c165d48c9copy5.jpg",
+        "imgi_118_d9369755-09ef-4045-b123-ac1c165d48c9copy5.jpg",
+        "imgi_119_d9369755-09ef-4045-b123-ac1c165d48c9copy5.jpg",
+        "imgi_120_d9369755-09ef-4045-b123-ac1c165d48c9copy5.jpg",
+        "imgi_121_d9369755-09ef-4045-b123-ac1c165d48c9copy5.jpg",
+        "imgi_122_d9369755-09ef-4045-b123-ac1c165d48c9copy5.jpg",
+        "imgi_123_d9369755-09ef-4045-b123-ac1c165d48c9copy5.jpg",
+        "imgi_13_d9369755-09ef-4045-b123-ac1c165d48c9copy5.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_132_d9369755-09ef-4045-b123-ac1c165d48c9copy36.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_125_d9369755-09ef-4045-b123-ac1c165d48c9copy36.jpg",
+        "imgi_126_d9369755-09ef-4045-b123-ac1c165d48c9copy36.jpg",
+        "imgi_127_d9369755-09ef-4045-b123-ac1c165d48c9copy36.jpg",
+        "imgi_128_d9369755-09ef-4045-b123-ac1c165d48c9copy36.jpg",
+        "imgi_129_d9369755-09ef-4045-b123-ac1c165d48c9copy36.jpg",
+        "imgi_130_d9369755-09ef-4045-b123-ac1c165d48c9copy36.jpg",
+        "imgi_131_d9369755-09ef-4045-b123-ac1c165d48c9copy36.jpg",
+        "imgi_14_d9369755-09ef-4045-b123-ac1c165d48c9copy36.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_140_d9369755-09ef-4045-b123-ac1c165d48c9copy44.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_133_d9369755-09ef-4045-b123-ac1c165d48c9copy44.jpg",
+        "imgi_134_d9369755-09ef-4045-b123-ac1c165d48c9copy44.jpg",
+        "imgi_135_d9369755-09ef-4045-b123-ac1c165d48c9copy44.jpg",
+        "imgi_136_d9369755-09ef-4045-b123-ac1c165d48c9copy44.jpg",
+        "imgi_137_d9369755-09ef-4045-b123-ac1c165d48c9copy44.jpg",
+        "imgi_138_d9369755-09ef-4045-b123-ac1c165d48c9copy44.jpg",
+        "imgi_139_d9369755-09ef-4045-b123-ac1c165d48c9copy44.jpg",
+        "imgi_15_d9369755-09ef-4045-b123-ac1c165d48c9copy44.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_148_d9369755-09ef-4045-b123-ac1c165d48c9copy58.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_141_d9369755-09ef-4045-b123-ac1c165d48c9copy58.jpg",
+        "imgi_142_d9369755-09ef-4045-b123-ac1c165d48c9copy58.jpg",
+        "imgi_143_d9369755-09ef-4045-b123-ac1c165d48c9copy58.jpg",
+        "imgi_144_d9369755-09ef-4045-b123-ac1c165d48c9copy58.jpg",
+        "imgi_145_d9369755-09ef-4045-b123-ac1c165d48c9copy58.jpg",
+        "imgi_146_d9369755-09ef-4045-b123-ac1c165d48c9copy58.jpg",
+        "imgi_147_d9369755-09ef-4045-b123-ac1c165d48c9copy58.jpg",
+        "imgi_16_d9369755-09ef-4045-b123-ac1c165d48c9copy58.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_156_d9369755-09ef-4045-b123-ac1c165d48c9copy37.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_149_d9369755-09ef-4045-b123-ac1c165d48c9copy37.jpg",
+        "imgi_150_d9369755-09ef-4045-b123-ac1c165d48c9copy37.jpg",
+        "imgi_151_d9369755-09ef-4045-b123-ac1c165d48c9copy37.jpg",
+        "imgi_152_d9369755-09ef-4045-b123-ac1c165d48c9copy37.jpg",
+        "imgi_153_d9369755-09ef-4045-b123-ac1c165d48c9copy37.jpg",
+        "imgi_154_d9369755-09ef-4045-b123-ac1c165d48c9copy37.jpg",
+        "imgi_155_d9369755-09ef-4045-b123-ac1c165d48c9copy37.jpg",
+        "imgi_17_d9369755-09ef-4045-b123-ac1c165d48c9copy37.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_164_7_1bbe1a5d-0403-4639-9720-bec4e269dd2e.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_157_7_1bbe1a5d-0403-4639-9720-bec4e269dd2e.jpg",
+        "imgi_158_7_1bbe1a5d-0403-4639-9720-bec4e269dd2e.jpg",
+        "imgi_159_7_1bbe1a5d-0403-4639-9720-bec4e269dd2e.jpg",
+        "imgi_160_7_1bbe1a5d-0403-4639-9720-bec4e269dd2e.jpg",
+        "imgi_161_7_1bbe1a5d-0403-4639-9720-bec4e269dd2e.jpg",
+        "imgi_162_7_1bbe1a5d-0403-4639-9720-bec4e269dd2e.jpg",
+        "imgi_163_7_1bbe1a5d-0403-4639-9720-bec4e269dd2e.jpg",
+        "imgi_18_7_1bbe1a5d-0403-4639-9720-bec4e269dd2e.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_181_d9369755-09ef-4045-b123-ac1c165d48c9copy34.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_174_d9369755-09ef-4045-b123-ac1c165d48c9copy34.jpg",
+        "imgi_175_d9369755-09ef-4045-b123-ac1c165d48c9copy34.jpg",
+        "imgi_176_d9369755-09ef-4045-b123-ac1c165d48c9copy34.jpg",
+        "imgi_177_d9369755-09ef-4045-b123-ac1c165d48c9copy34.jpg",
+        "imgi_178_d9369755-09ef-4045-b123-ac1c165d48c9copy34.jpg",
+        "imgi_179_d9369755-09ef-4045-b123-ac1c165d48c9copy34.jpg",
+        "imgi_180_d9369755-09ef-4045-b123-ac1c165d48c9copy34.jpg",
+        "imgi_20_d9369755-09ef-4045-b123-ac1c165d48c9copy34.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_189_MadridEmpirePhoneCase.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_182_MadridEmpirePhoneCase.jpg",
+        "imgi_183_MadridEmpirePhoneCase.jpg",
+        "imgi_184_MadridEmpirePhoneCase.jpg",
+        "imgi_185_MadridEmpirePhoneCase.jpg",
+        "imgi_186_MadridEmpirePhoneCase.jpg",
+        "imgi_187_MadridEmpirePhoneCase.jpg",
+        "imgi_188_MadridEmpirePhoneCase.jpg",
+        "imgi_21_MadridEmpirePhoneCase.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_206_d9369755-09ef-4045-b123-ac1c165d48c9copy25_714f7e12-f19b-4517-9322-17d1c069795b.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_199_d9369755-09ef-4045-b123-ac1c165d48c9copy25_714f7e12-f19b-4517-9322-17d1c069795b.jpg",
+        "imgi_200_d9369755-09ef-4045-b123-ac1c165d48c9copy25_714f7e12-f19b-4517-9322-17d1c069795b.jpg",
+        "imgi_201_d9369755-09ef-4045-b123-ac1c165d48c9copy25_714f7e12-f19b-4517-9322-17d1c069795b.jpg",
+        "imgi_202_d9369755-09ef-4045-b123-ac1c165d48c9copy25_714f7e12-f19b-4517-9322-17d1c069795b.jpg",
+        "imgi_203_d9369755-09ef-4045-b123-ac1c165d48c9copy25_714f7e12-f19b-4517-9322-17d1c069795b.jpg",
+        "imgi_204_d9369755-09ef-4045-b123-ac1c165d48c9copy25_714f7e12-f19b-4517-9322-17d1c069795b.jpg",
+        "imgi_205_d9369755-09ef-4045-b123-ac1c165d48c9copy25_714f7e12-f19b-4517-9322-17d1c069795b.jpg",
+        "imgi_23_d9369755-09ef-4045-b123-ac1c165d48c9copy25_714f7e12-f19b-4517-9322-17d1c069795b.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_214_d9369755-09ef-4045-b123-ac1c165d48c9copy16.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_207_d9369755-09ef-4045-b123-ac1c165d48c9copy16.jpg",
+        "imgi_208_d9369755-09ef-4045-b123-ac1c165d48c9copy16.jpg",
+        "imgi_209_d9369755-09ef-4045-b123-ac1c165d48c9copy16.jpg",
+        "imgi_210_d9369755-09ef-4045-b123-ac1c165d48c9copy16.jpg",
+        "imgi_211_d9369755-09ef-4045-b123-ac1c165d48c9copy16.jpg",
+        "imgi_212_d9369755-09ef-4045-b123-ac1c165d48c9copy16.jpg",
+        "imgi_213_d9369755-09ef-4045-b123-ac1c165d48c9copy16.jpg",
+        "imgi_24_d9369755-09ef-4045-b123-ac1c165d48c9copy16.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_222_d9369755-09ef-4045-b123-ac1c165d48c9copy60.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_215_d9369755-09ef-4045-b123-ac1c165d48c9copy60.jpg",
+        "imgi_216_d9369755-09ef-4045-b123-ac1c165d48c9copy60.jpg",
+        "imgi_217_d9369755-09ef-4045-b123-ac1c165d48c9copy60.jpg",
+        "imgi_218_d9369755-09ef-4045-b123-ac1c165d48c9copy60.jpg",
+        "imgi_219_d9369755-09ef-4045-b123-ac1c165d48c9copy60.jpg",
+        "imgi_220_d9369755-09ef-4045-b123-ac1c165d48c9copy60.jpg",
+        "imgi_221_d9369755-09ef-4045-b123-ac1c165d48c9copy60.jpg",
+        "imgi_25_d9369755-09ef-4045-b123-ac1c165d48c9copy60.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_230_HalaMadridPhoneCase.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_223_HalaMadridPhoneCase.jpg",
+        "imgi_224_HalaMadridPhoneCase.jpg",
+        "imgi_225_HalaMadridPhoneCase.jpg",
+        "imgi_226_HalaMadridPhoneCase.jpg",
+        "imgi_227_HalaMadridPhoneCase.jpg",
+        "imgi_228_HalaMadridPhoneCase.jpg",
+        "imgi_229_HalaMadridPhoneCase.jpg",
+        "imgi_26_HalaMadridPhoneCase.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_247_d9369755-09ef-4045-b123-ac1c165d48c9copy59.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_240_d9369755-09ef-4045-b123-ac1c165d48c9copy59.jpg",
+        "imgi_241_d9369755-09ef-4045-b123-ac1c165d48c9copy59.jpg",
+        "imgi_242_d9369755-09ef-4045-b123-ac1c165d48c9copy59.jpg",
+        "imgi_243_d9369755-09ef-4045-b123-ac1c165d48c9copy59.jpg",
+        "imgi_244_d9369755-09ef-4045-b123-ac1c165d48c9copy59.jpg",
+        "imgi_245_d9369755-09ef-4045-b123-ac1c165d48c9copy59.jpg",
+        "imgi_246_d9369755-09ef-4045-b123-ac1c165d48c9copy59.jpg",
+        "imgi_28_d9369755-09ef-4045-b123-ac1c165d48c9copy59.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_255_d9369755-09ef-4045-b123-ac1c165d48c9copy3.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_248_d9369755-09ef-4045-b123-ac1c165d48c9copy3.jpg",
+        "imgi_249_d9369755-09ef-4045-b123-ac1c165d48c9copy3.jpg",
+        "imgi_250_d9369755-09ef-4045-b123-ac1c165d48c9copy3.jpg",
+        "imgi_251_d9369755-09ef-4045-b123-ac1c165d48c9copy3.jpg",
+        "imgi_252_d9369755-09ef-4045-b123-ac1c165d48c9copy3.jpg",
+        "imgi_253_d9369755-09ef-4045-b123-ac1c165d48c9copy3.jpg",
+        "imgi_254_d9369755-09ef-4045-b123-ac1c165d48c9copy3.jpg",
+        "imgi_29_d9369755-09ef-4045-b123-ac1c165d48c9copy3.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_263_d9369755-09ef-4045-b123-ac1c165d48c9copy7.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_256_d9369755-09ef-4045-b123-ac1c165d48c9copy7.jpg",
+        "imgi_257_d9369755-09ef-4045-b123-ac1c165d48c9copy7.jpg",
+        "imgi_258_d9369755-09ef-4045-b123-ac1c165d48c9copy7.jpg",
+        "imgi_259_d9369755-09ef-4045-b123-ac1c165d48c9copy7.jpg",
+        "imgi_260_d9369755-09ef-4045-b123-ac1c165d48c9copy7.jpg",
+        "imgi_261_d9369755-09ef-4045-b123-ac1c165d48c9copy7.jpg",
+        "imgi_262_d9369755-09ef-4045-b123-ac1c165d48c9copy7.jpg",
+        "imgi_30_d9369755-09ef-4045-b123-ac1c165d48c9copy7.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_271_d9369755-09ef-4045-b123-ac1c165d48c9copy35.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_264_d9369755-09ef-4045-b123-ac1c165d48c9copy35.jpg",
+        "imgi_265_d9369755-09ef-4045-b123-ac1c165d48c9copy35.jpg",
+        "imgi_266_d9369755-09ef-4045-b123-ac1c165d48c9copy35.jpg",
+        "imgi_267_d9369755-09ef-4045-b123-ac1c165d48c9copy35.jpg",
+        "imgi_268_d9369755-09ef-4045-b123-ac1c165d48c9copy35.jpg",
+        "imgi_269_d9369755-09ef-4045-b123-ac1c165d48c9copy35.jpg",
+        "imgi_270_d9369755-09ef-4045-b123-ac1c165d48c9copy35.jpg",
+        "imgi_31_d9369755-09ef-4045-b123-ac1c165d48c9copy35.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_279_d9369755-09ef-4045-b123-ac1c165d48c9copy49.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_272_d9369755-09ef-4045-b123-ac1c165d48c9copy49.jpg",
+        "imgi_273_d9369755-09ef-4045-b123-ac1c165d48c9copy49.jpg",
+        "imgi_274_d9369755-09ef-4045-b123-ac1c165d48c9copy49.jpg",
+        "imgi_275_d9369755-09ef-4045-b123-ac1c165d48c9copy49.jpg",
+        "imgi_276_d9369755-09ef-4045-b123-ac1c165d48c9copy49.jpg",
+        "imgi_277_d9369755-09ef-4045-b123-ac1c165d48c9copy49.jpg",
+        "imgi_278_d9369755-09ef-4045-b123-ac1c165d48c9copy49.jpg",
+        "imgi_32_d9369755-09ef-4045-b123-ac1c165d48c9copy49.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_287_d9369755-09ef-4045-b123-ac1c165d48c9copy28.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_280_d9369755-09ef-4045-b123-ac1c165d48c9copy28.jpg",
+        "imgi_281_d9369755-09ef-4045-b123-ac1c165d48c9copy28.jpg",
+        "imgi_282_d9369755-09ef-4045-b123-ac1c165d48c9copy28.jpg",
+        "imgi_283_d9369755-09ef-4045-b123-ac1c165d48c9copy28.jpg",
+        "imgi_284_d9369755-09ef-4045-b123-ac1c165d48c9copy28.jpg",
+        "imgi_285_d9369755-09ef-4045-b123-ac1c165d48c9copy28.jpg",
+        "imgi_286_d9369755-09ef-4045-b123-ac1c165d48c9copy28.jpg",
+        "imgi_33_d9369755-09ef-4045-b123-ac1c165d48c9copy28.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_295_d9369755-09ef-4045-b123-ac1c165d48c9copy48.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_288_d9369755-09ef-4045-b123-ac1c165d48c9copy48.jpg",
+        "imgi_289_d9369755-09ef-4045-b123-ac1c165d48c9copy48.jpg",
+        "imgi_290_d9369755-09ef-4045-b123-ac1c165d48c9copy48.jpg",
+        "imgi_291_d9369755-09ef-4045-b123-ac1c165d48c9copy48.jpg",
+        "imgi_292_d9369755-09ef-4045-b123-ac1c165d48c9copy48.jpg",
+        "imgi_293_d9369755-09ef-4045-b123-ac1c165d48c9copy48.jpg",
+        "imgi_294_d9369755-09ef-4045-b123-ac1c165d48c9copy48.jpg",
+        "imgi_34_d9369755-09ef-4045-b123-ac1c165d48c9copy48.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_303_d9369755-09ef-4045-b123-ac1c165d48c9copy20.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_296_d9369755-09ef-4045-b123-ac1c165d48c9copy20.jpg",
+        "imgi_297_d9369755-09ef-4045-b123-ac1c165d48c9copy20.jpg",
+        "imgi_298_d9369755-09ef-4045-b123-ac1c165d48c9copy20.jpg",
+        "imgi_299_d9369755-09ef-4045-b123-ac1c165d48c9copy20.jpg",
+        "imgi_300_d9369755-09ef-4045-b123-ac1c165d48c9copy20.jpg",
+        "imgi_301_d9369755-09ef-4045-b123-ac1c165d48c9copy20.jpg",
+        "imgi_302_d9369755-09ef-4045-b123-ac1c165d48c9copy20.jpg",
+        "imgi_35_d9369755-09ef-4045-b123-ac1c165d48c9copy20.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_311_d9369755-09ef-4045-b123-ac1c165d48c9copy57.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_304_d9369755-09ef-4045-b123-ac1c165d48c9copy57.jpg",
+        "imgi_305_d9369755-09ef-4045-b123-ac1c165d48c9copy57.jpg",
+        "imgi_306_d9369755-09ef-4045-b123-ac1c165d48c9copy57.jpg",
+        "imgi_307_d9369755-09ef-4045-b123-ac1c165d48c9copy57.jpg",
+        "imgi_308_d9369755-09ef-4045-b123-ac1c165d48c9copy57.jpg",
+        "imgi_309_d9369755-09ef-4045-b123-ac1c165d48c9copy57.jpg",
+        "imgi_310_d9369755-09ef-4045-b123-ac1c165d48c9copy57.jpg",
+        "imgi_36_d9369755-09ef-4045-b123-ac1c165d48c9copy57.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_319_d9369755-09ef-4045-b123-ac1c165d48c9copy54.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_312_d9369755-09ef-4045-b123-ac1c165d48c9copy54.jpg",
+        "imgi_313_d9369755-09ef-4045-b123-ac1c165d48c9copy54.jpg",
+        "imgi_314_d9369755-09ef-4045-b123-ac1c165d48c9copy54.jpg",
+        "imgi_315_d9369755-09ef-4045-b123-ac1c165d48c9copy54.jpg",
+        "imgi_316_d9369755-09ef-4045-b123-ac1c165d48c9copy54.jpg",
+        "imgi_317_d9369755-09ef-4045-b123-ac1c165d48c9copy54.jpg",
+        "imgi_318_d9369755-09ef-4045-b123-ac1c165d48c9copy54.jpg",
+        "imgi_37_d9369755-09ef-4045-b123-ac1c165d48c9copy54.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_327_d9369755-09ef-4045-b123-ac1c165d48c9copy45.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_320_d9369755-09ef-4045-b123-ac1c165d48c9copy45.jpg",
+        "imgi_321_d9369755-09ef-4045-b123-ac1c165d48c9copy45.jpg",
+        "imgi_322_d9369755-09ef-4045-b123-ac1c165d48c9copy45.jpg",
+        "imgi_323_d9369755-09ef-4045-b123-ac1c165d48c9copy45.jpg",
+        "imgi_324_d9369755-09ef-4045-b123-ac1c165d48c9copy45.jpg",
+        "imgi_325_d9369755-09ef-4045-b123-ac1c165d48c9copy45.jpg",
+        "imgi_326_d9369755-09ef-4045-b123-ac1c165d48c9copy45.jpg",
+        "imgi_38_d9369755-09ef-4045-b123-ac1c165d48c9copy45.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_335_d9369755-09ef-4045-b123-ac1c165d48c9copy11.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_328_d9369755-09ef-4045-b123-ac1c165d48c9copy11.jpg",
+        "imgi_329_d9369755-09ef-4045-b123-ac1c165d48c9copy11.jpg",
+        "imgi_330_d9369755-09ef-4045-b123-ac1c165d48c9copy11.jpg",
+        "imgi_331_d9369755-09ef-4045-b123-ac1c165d48c9copy11.jpg",
+        "imgi_332_d9369755-09ef-4045-b123-ac1c165d48c9copy11.jpg",
+        "imgi_333_d9369755-09ef-4045-b123-ac1c165d48c9copy11.jpg",
+        "imgi_334_d9369755-09ef-4045-b123-ac1c165d48c9copy11.jpg",
+        "imgi_39_d9369755-09ef-4045-b123-ac1c165d48c9copy11.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_343_d9369755-09ef-4045-b123-ac1c165d48c9copy32.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_336_d9369755-09ef-4045-b123-ac1c165d48c9copy32.jpg",
+        "imgi_337_d9369755-09ef-4045-b123-ac1c165d48c9copy32.jpg",
+        "imgi_338_d9369755-09ef-4045-b123-ac1c165d48c9copy32.jpg",
+        "imgi_339_d9369755-09ef-4045-b123-ac1c165d48c9copy32.jpg",
+        "imgi_340_d9369755-09ef-4045-b123-ac1c165d48c9copy32.jpg",
+        "imgi_341_d9369755-09ef-4045-b123-ac1c165d48c9copy32.jpg",
+        "imgi_342_d9369755-09ef-4045-b123-ac1c165d48c9copy32.jpg",
+        "imgi_40_d9369755-09ef-4045-b123-ac1c165d48c9copy32.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_351_d9369755-09ef-4045-b123-ac1c165d48c9copy6.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_344_d9369755-09ef-4045-b123-ac1c165d48c9copy6.jpg",
+        "imgi_345_d9369755-09ef-4045-b123-ac1c165d48c9copy6.jpg",
+        "imgi_346_d9369755-09ef-4045-b123-ac1c165d48c9copy6.jpg",
+        "imgi_347_d9369755-09ef-4045-b123-ac1c165d48c9copy6.jpg",
+        "imgi_348_d9369755-09ef-4045-b123-ac1c165d48c9copy6.jpg",
+        "imgi_349_d9369755-09ef-4045-b123-ac1c165d48c9copy6.jpg",
+        "imgi_350_d9369755-09ef-4045-b123-ac1c165d48c9copy6.jpg",
+        "imgi_41_d9369755-09ef-4045-b123-ac1c165d48c9copy6.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_359_d9369755-09ef-4045-b123-ac1c165d48c9copy47.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_352_d9369755-09ef-4045-b123-ac1c165d48c9copy47.jpg",
+        "imgi_353_d9369755-09ef-4045-b123-ac1c165d48c9copy47.jpg",
+        "imgi_354_d9369755-09ef-4045-b123-ac1c165d48c9copy47.jpg",
+        "imgi_355_d9369755-09ef-4045-b123-ac1c165d48c9copy47.jpg",
+        "imgi_356_d9369755-09ef-4045-b123-ac1c165d48c9copy47.jpg",
+        "imgi_357_d9369755-09ef-4045-b123-ac1c165d48c9copy47.jpg",
+        "imgi_358_d9369755-09ef-4045-b123-ac1c165d48c9copy47.jpg",
+        "imgi_42_d9369755-09ef-4045-b123-ac1c165d48c9copy47.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_367_d9369755-09ef-4045-b123-ac1c165d48c9copy26_1a73fd0e-c690-4ce3-b4ed-5b7f50fbf4f1.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_360_d9369755-09ef-4045-b123-ac1c165d48c9copy26_1a73fd0e-c690-4ce3-b4ed-5b7f50fbf4f1.jpg",
+        "imgi_361_d9369755-09ef-4045-b123-ac1c165d48c9copy26_1a73fd0e-c690-4ce3-b4ed-5b7f50fbf4f1.jpg",
+        "imgi_362_d9369755-09ef-4045-b123-ac1c165d48c9copy26_1a73fd0e-c690-4ce3-b4ed-5b7f50fbf4f1.jpg",
+        "imgi_363_d9369755-09ef-4045-b123-ac1c165d48c9copy26_1a73fd0e-c690-4ce3-b4ed-5b7f50fbf4f1.jpg",
+        "imgi_364_d9369755-09ef-4045-b123-ac1c165d48c9copy26_1a73fd0e-c690-4ce3-b4ed-5b7f50fbf4f1.jpg",
+        "imgi_365_d9369755-09ef-4045-b123-ac1c165d48c9copy26_1a73fd0e-c690-4ce3-b4ed-5b7f50fbf4f1.jpg",
+        "imgi_366_d9369755-09ef-4045-b123-ac1c165d48c9copy26_1a73fd0e-c690-4ce3-b4ed-5b7f50fbf4f1.jpg",
+        "imgi_43_d9369755-09ef-4045-b123-ac1c165d48c9copy26_1a73fd0e-c690-4ce3-b4ed-5b7f50fbf4f1.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_375_d9369755-09ef-4045-b123-ac1c165d48c9copy50.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_368_d9369755-09ef-4045-b123-ac1c165d48c9copy50.jpg",
+        "imgi_369_d9369755-09ef-4045-b123-ac1c165d48c9copy50.jpg",
+        "imgi_370_d9369755-09ef-4045-b123-ac1c165d48c9copy50.jpg",
+        "imgi_371_d9369755-09ef-4045-b123-ac1c165d48c9copy50.jpg",
+        "imgi_372_d9369755-09ef-4045-b123-ac1c165d48c9copy50.jpg",
+        "imgi_373_d9369755-09ef-4045-b123-ac1c165d48c9copy50.jpg",
+        "imgi_374_d9369755-09ef-4045-b123-ac1c165d48c9copy50.jpg",
+        "imgi_44_d9369755-09ef-4045-b123-ac1c165d48c9copy50.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_383_d9369755-09ef-4045-b123-ac1c165d48c9copy1.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_376_d9369755-09ef-4045-b123-ac1c165d48c9copy1.jpg",
+        "imgi_377_d9369755-09ef-4045-b123-ac1c165d48c9copy1.jpg",
+        "imgi_378_d9369755-09ef-4045-b123-ac1c165d48c9copy1.jpg",
+        "imgi_379_d9369755-09ef-4045-b123-ac1c165d48c9copy1.jpg",
+        "imgi_380_d9369755-09ef-4045-b123-ac1c165d48c9copy1.jpg",
+        "imgi_381_d9369755-09ef-4045-b123-ac1c165d48c9copy1.jpg",
+        "imgi_382_d9369755-09ef-4045-b123-ac1c165d48c9copy1.jpg",
+        "imgi_45_d9369755-09ef-4045-b123-ac1c165d48c9copy1.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_391_d9369755-09ef-4045-b123-ac1c165d48c9copy19_08b78123-a4f5-4d04-8773-0f38e461a546.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_384_d9369755-09ef-4045-b123-ac1c165d48c9copy19_08b78123-a4f5-4d04-8773-0f38e461a546.jpg",
+        "imgi_385_d9369755-09ef-4045-b123-ac1c165d48c9copy19_08b78123-a4f5-4d04-8773-0f38e461a546.jpg",
+        "imgi_386_d9369755-09ef-4045-b123-ac1c165d48c9copy19_08b78123-a4f5-4d04-8773-0f38e461a546.jpg",
+        "imgi_387_d9369755-09ef-4045-b123-ac1c165d48c9copy19_08b78123-a4f5-4d04-8773-0f38e461a546.jpg",
+        "imgi_388_d9369755-09ef-4045-b123-ac1c165d48c9copy19_08b78123-a4f5-4d04-8773-0f38e461a546.jpg",
+        "imgi_389_d9369755-09ef-4045-b123-ac1c165d48c9copy19_08b78123-a4f5-4d04-8773-0f38e461a546.jpg",
+        "imgi_390_d9369755-09ef-4045-b123-ac1c165d48c9copy19_08b78123-a4f5-4d04-8773-0f38e461a546.jpg",
+        "imgi_46_d9369755-09ef-4045-b123-ac1c165d48c9copy19_08b78123-a4f5-4d04-8773-0f38e461a546.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_399_d9369755-09ef-4045-b123-ac1c165d48c9copy2.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_392_d9369755-09ef-4045-b123-ac1c165d48c9copy2.jpg",
+        "imgi_393_d9369755-09ef-4045-b123-ac1c165d48c9copy2.jpg",
+        "imgi_394_d9369755-09ef-4045-b123-ac1c165d48c9copy2.jpg",
+        "imgi_395_d9369755-09ef-4045-b123-ac1c165d48c9copy2.jpg",
+        "imgi_396_d9369755-09ef-4045-b123-ac1c165d48c9copy2.jpg",
+        "imgi_397_d9369755-09ef-4045-b123-ac1c165d48c9copy2.jpg",
+        "imgi_398_d9369755-09ef-4045-b123-ac1c165d48c9copy2.jpg",
+        "imgi_47_d9369755-09ef-4045-b123-ac1c165d48c9copy2.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_407_d9369755-09ef-4045-b123-ac1c165d48c9copy46.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_400_d9369755-09ef-4045-b123-ac1c165d48c9copy46.jpg",
+        "imgi_401_d9369755-09ef-4045-b123-ac1c165d48c9copy46.jpg",
+        "imgi_402_d9369755-09ef-4045-b123-ac1c165d48c9copy46.jpg",
+        "imgi_403_d9369755-09ef-4045-b123-ac1c165d48c9copy46.jpg",
+        "imgi_404_d9369755-09ef-4045-b123-ac1c165d48c9copy46.jpg",
+        "imgi_405_d9369755-09ef-4045-b123-ac1c165d48c9copy46.jpg",
+        "imgi_406_d9369755-09ef-4045-b123-ac1c165d48c9copy46.jpg",
+        "imgi_48_d9369755-09ef-4045-b123-ac1c165d48c9copy46.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_415_d9369755-09ef-4045-b123-ac1c165d48c9copy4.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_408_d9369755-09ef-4045-b123-ac1c165d48c9copy4.jpg",
+        "imgi_409_d9369755-09ef-4045-b123-ac1c165d48c9copy4.jpg",
+        "imgi_410_d9369755-09ef-4045-b123-ac1c165d48c9copy4.jpg",
+        "imgi_411_d9369755-09ef-4045-b123-ac1c165d48c9copy4.jpg",
+        "imgi_412_d9369755-09ef-4045-b123-ac1c165d48c9copy4.jpg",
+        "imgi_413_d9369755-09ef-4045-b123-ac1c165d48c9copy4.jpg",
+        "imgi_414_d9369755-09ef-4045-b123-ac1c165d48c9copy4.jpg",
+        "imgi_49_d9369755-09ef-4045-b123-ac1c165d48c9copy4.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_423_d9369755-09ef-4045-b123-ac1c165d48c9copy14.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_416_d9369755-09ef-4045-b123-ac1c165d48c9copy14.jpg",
+        "imgi_417_d9369755-09ef-4045-b123-ac1c165d48c9copy14.jpg",
+        "imgi_418_d9369755-09ef-4045-b123-ac1c165d48c9copy14.jpg",
+        "imgi_419_d9369755-09ef-4045-b123-ac1c165d48c9copy14.jpg",
+        "imgi_420_d9369755-09ef-4045-b123-ac1c165d48c9copy14.jpg",
+        "imgi_421_d9369755-09ef-4045-b123-ac1c165d48c9copy14.jpg",
+        "imgi_422_d9369755-09ef-4045-b123-ac1c165d48c9copy14.jpg",
+        "imgi_50_d9369755-09ef-4045-b123-ac1c165d48c9copy14.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_431_d9369755-09ef-4045-b123-ac1c165d48c9copy56.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_424_d9369755-09ef-4045-b123-ac1c165d48c9copy56.jpg",
+        "imgi_425_d9369755-09ef-4045-b123-ac1c165d48c9copy56.jpg",
+        "imgi_426_d9369755-09ef-4045-b123-ac1c165d48c9copy56.jpg",
+        "imgi_427_d9369755-09ef-4045-b123-ac1c165d48c9copy56.jpg",
+        "imgi_428_d9369755-09ef-4045-b123-ac1c165d48c9copy56.jpg",
+        "imgi_429_d9369755-09ef-4045-b123-ac1c165d48c9copy56.jpg",
+        "imgi_430_d9369755-09ef-4045-b123-ac1c165d48c9copy56.jpg",
+        "imgi_51_d9369755-09ef-4045-b123-ac1c165d48c9copy56.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_439_d9369755-09ef-4045-b123-ac1c165d48c9copy53.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_432_d9369755-09ef-4045-b123-ac1c165d48c9copy53.jpg",
+        "imgi_433_d9369755-09ef-4045-b123-ac1c165d48c9copy53.jpg",
+        "imgi_434_d9369755-09ef-4045-b123-ac1c165d48c9copy53.jpg",
+        "imgi_435_d9369755-09ef-4045-b123-ac1c165d48c9copy53.jpg",
+        "imgi_436_d9369755-09ef-4045-b123-ac1c165d48c9copy53.jpg",
+        "imgi_437_d9369755-09ef-4045-b123-ac1c165d48c9copy53.jpg",
+        "imgi_438_d9369755-09ef-4045-b123-ac1c165d48c9copy53.jpg",
+        "imgi_52_d9369755-09ef-4045-b123-ac1c165d48c9copy53.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_447_d9369755-09ef-4045-b123-ac1c165d48c9copy12.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_440_d9369755-09ef-4045-b123-ac1c165d48c9copy12.jpg",
+        "imgi_441_d9369755-09ef-4045-b123-ac1c165d48c9copy12.jpg",
+        "imgi_442_d9369755-09ef-4045-b123-ac1c165d48c9copy12.jpg",
+        "imgi_443_d9369755-09ef-4045-b123-ac1c165d48c9copy12.jpg",
+        "imgi_444_d9369755-09ef-4045-b123-ac1c165d48c9copy12.jpg",
+        "imgi_445_d9369755-09ef-4045-b123-ac1c165d48c9copy12.jpg",
+        "imgi_446_d9369755-09ef-4045-b123-ac1c165d48c9copy12.jpg",
+        "imgi_53_d9369755-09ef-4045-b123-ac1c165d48c9copy12.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_455_d9369755-09ef-4045-b123-ac1c165d48c9copy51.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_448_d9369755-09ef-4045-b123-ac1c165d48c9copy51.jpg",
+        "imgi_449_d9369755-09ef-4045-b123-ac1c165d48c9copy51.jpg",
+        "imgi_450_d9369755-09ef-4045-b123-ac1c165d48c9copy51.jpg",
+        "imgi_451_d9369755-09ef-4045-b123-ac1c165d48c9copy51.jpg",
+        "imgi_452_d9369755-09ef-4045-b123-ac1c165d48c9copy51.jpg",
+        "imgi_453_d9369755-09ef-4045-b123-ac1c165d48c9copy51.jpg",
+        "imgi_454_d9369755-09ef-4045-b123-ac1c165d48c9copy51.jpg",
+        "imgi_54_d9369755-09ef-4045-b123-ac1c165d48c9copy51.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_463_d9369755-09ef-4045-b123-ac1c165d48c9copy27.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_456_d9369755-09ef-4045-b123-ac1c165d48c9copy27.jpg",
+        "imgi_457_d9369755-09ef-4045-b123-ac1c165d48c9copy27.jpg",
+        "imgi_458_d9369755-09ef-4045-b123-ac1c165d48c9copy27.jpg",
+        "imgi_459_d9369755-09ef-4045-b123-ac1c165d48c9copy27.jpg",
+        "imgi_460_d9369755-09ef-4045-b123-ac1c165d48c9copy27.jpg",
+        "imgi_461_d9369755-09ef-4045-b123-ac1c165d48c9copy27.jpg",
+        "imgi_462_d9369755-09ef-4045-b123-ac1c165d48c9copy27.jpg",
+        "imgi_55_d9369755-09ef-4045-b123-ac1c165d48c9copy27.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_471_d9369755-09ef-4045-b123-ac1c165d48c9copy29.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_464_d9369755-09ef-4045-b123-ac1c165d48c9copy29.jpg",
+        "imgi_465_d9369755-09ef-4045-b123-ac1c165d48c9copy29.jpg",
+        "imgi_466_d9369755-09ef-4045-b123-ac1c165d48c9copy29.jpg",
+        "imgi_467_d9369755-09ef-4045-b123-ac1c165d48c9copy29.jpg",
+        "imgi_468_d9369755-09ef-4045-b123-ac1c165d48c9copy29.jpg",
+        "imgi_469_d9369755-09ef-4045-b123-ac1c165d48c9copy29.jpg",
+        "imgi_470_d9369755-09ef-4045-b123-ac1c165d48c9copy29.jpg",
+        "imgi_56_d9369755-09ef-4045-b123-ac1c165d48c9copy29.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_479_d9369755-09ef-4045-b123-ac1c165d48c9copy55.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_472_d9369755-09ef-4045-b123-ac1c165d48c9copy55.jpg",
+        "imgi_473_d9369755-09ef-4045-b123-ac1c165d48c9copy55.jpg",
+        "imgi_474_d9369755-09ef-4045-b123-ac1c165d48c9copy55.jpg",
+        "imgi_475_d9369755-09ef-4045-b123-ac1c165d48c9copy55.jpg",
+        "imgi_476_d9369755-09ef-4045-b123-ac1c165d48c9copy55.jpg",
+        "imgi_477_d9369755-09ef-4045-b123-ac1c165d48c9copy55.jpg",
+        "imgi_478_d9369755-09ef-4045-b123-ac1c165d48c9copy55.jpg",
+        "imgi_57_d9369755-09ef-4045-b123-ac1c165d48c9copy55.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_487_d9369755-09ef-4045-b123-ac1c165d48c9copy43.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_480_d9369755-09ef-4045-b123-ac1c165d48c9copy43.jpg",
+        "imgi_481_d9369755-09ef-4045-b123-ac1c165d48c9copy43.jpg",
+        "imgi_482_d9369755-09ef-4045-b123-ac1c165d48c9copy43.jpg",
+        "imgi_483_d9369755-09ef-4045-b123-ac1c165d48c9copy43.jpg",
+        "imgi_484_d9369755-09ef-4045-b123-ac1c165d48c9copy43.jpg",
+        "imgi_485_d9369755-09ef-4045-b123-ac1c165d48c9copy43.jpg",
+        "imgi_486_d9369755-09ef-4045-b123-ac1c165d48c9copy43.jpg",
+        "imgi_58_d9369755-09ef-4045-b123-ac1c165d48c9copy43.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_495_d9369755-09ef-4045-b123-ac1c165d48c9copy33.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_488_d9369755-09ef-4045-b123-ac1c165d48c9copy33.jpg",
+        "imgi_489_d9369755-09ef-4045-b123-ac1c165d48c9copy33.jpg",
+        "imgi_490_d9369755-09ef-4045-b123-ac1c165d48c9copy33.jpg",
+        "imgi_491_d9369755-09ef-4045-b123-ac1c165d48c9copy33.jpg",
+        "imgi_492_d9369755-09ef-4045-b123-ac1c165d48c9copy33.jpg",
+        "imgi_493_d9369755-09ef-4045-b123-ac1c165d48c9copy33.jpg",
+        "imgi_494_d9369755-09ef-4045-b123-ac1c165d48c9copy33.jpg",
+        "imgi_59_d9369755-09ef-4045-b123-ac1c165d48c9copy33.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_503_d9369755-09ef-4045-b123-ac1c165d48c9copy30.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_496_d9369755-09ef-4045-b123-ac1c165d48c9copy30.jpg",
+        "imgi_497_d9369755-09ef-4045-b123-ac1c165d48c9copy30.jpg",
+        "imgi_498_d9369755-09ef-4045-b123-ac1c165d48c9copy30.jpg",
+        "imgi_499_d9369755-09ef-4045-b123-ac1c165d48c9copy30.jpg",
+        "imgi_500_d9369755-09ef-4045-b123-ac1c165d48c9copy30.jpg",
+        "imgi_501_d9369755-09ef-4045-b123-ac1c165d48c9copy30.jpg",
+        "imgi_502_d9369755-09ef-4045-b123-ac1c165d48c9copy30.jpg",
+        "imgi_60_d9369755-09ef-4045-b123-ac1c165d48c9copy30.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_511_d9369755-09ef-4045-b123-ac1c165d48c9copy18.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_504_d9369755-09ef-4045-b123-ac1c165d48c9copy18.jpg",
+        "imgi_505_d9369755-09ef-4045-b123-ac1c165d48c9copy18.jpg",
+        "imgi_506_d9369755-09ef-4045-b123-ac1c165d48c9copy18.jpg",
+        "imgi_507_d9369755-09ef-4045-b123-ac1c165d48c9copy18.jpg",
+        "imgi_508_d9369755-09ef-4045-b123-ac1c165d48c9copy18.jpg",
+        "imgi_509_d9369755-09ef-4045-b123-ac1c165d48c9copy18.jpg",
+        "imgi_510_d9369755-09ef-4045-b123-ac1c165d48c9copy18.jpg",
+        "imgi_61_d9369755-09ef-4045-b123-ac1c165d48c9copy18.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_519_d9369755-09ef-4045-b123-ac1c165d48c9copy15.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_512_d9369755-09ef-4045-b123-ac1c165d48c9copy15.jpg",
+        "imgi_513_d9369755-09ef-4045-b123-ac1c165d48c9copy15.jpg",
+        "imgi_514_d9369755-09ef-4045-b123-ac1c165d48c9copy15.jpg",
+        "imgi_515_d9369755-09ef-4045-b123-ac1c165d48c9copy15.jpg",
+        "imgi_516_d9369755-09ef-4045-b123-ac1c165d48c9copy15.jpg",
+        "imgi_517_d9369755-09ef-4045-b123-ac1c165d48c9copy15.jpg",
+        "imgi_518_d9369755-09ef-4045-b123-ac1c165d48c9copy15.jpg",
+        "imgi_62_d9369755-09ef-4045-b123-ac1c165d48c9copy15.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_74_d9369755-09ef-4045-b123-ac1c165d48c9copy8.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_7_d9369755-09ef-4045-b123-ac1c165d48c9copy8.jpg"
+      ]
+    },
+    {
+      "chosenFilename": "imgi_91_d9369755-09ef-4045-b123-ac1c165d48c9copy10.jpg",
+      "chosenDimensions": "900x1200",
+      "reason": "same-source-group",
+      "skippedFilenames": [
+        "imgi_84_d9369755-09ef-4045-b123-ac1c165d48c9copy10.jpg",
+        "imgi_85_d9369755-09ef-4045-b123-ac1c165d48c9copy10.jpg",
+        "imgi_86_d9369755-09ef-4045-b123-ac1c165d48c9copy10.jpg",
+        "imgi_87_d9369755-09ef-4045-b123-ac1c165d48c9copy10.jpg",
+        "imgi_88_d9369755-09ef-4045-b123-ac1c165d48c9copy10.jpg",
+        "imgi_89_d9369755-09ef-4045-b123-ac1c165d48c9copy10.jpg",
+        "imgi_90_d9369755-09ef-4045-b123-ac1c165d48c9copy10.jpg",
+        "imgi_9_d9369755-09ef-4045-b123-ac1c165d48c9copy10.jpg"
+      ]
+    }
+  ],
+  "exactDuplicateCount": 0,
+  "sameSourceGroupCount": 51,
+  "nearDuplicateCount": 0,
+  "survivorCount": 51,
+  "uncategorized": [],
+  "allowUncategorized": false,
+  "preflight": [
+    {
+      "name": "SKU uniqueness (in-batch)",
+      "passed": true,
+      "detail": "9690 planned SKUs, all unique."
+    },
+    {
+      "name": "SKU length",
+      "passed": true,
+      "detail": "product_variants.sku is Postgres text (unbounded) - all planned SKUs are well under 200 chars."
+    },
+    {
+      "name": "SKU collision against existing catalog",
+      "passed": true,
+      "detail": "No planned SKU collides with an existing variant outside this import."
+    },
+    {
+      "name": "Case-type / phone-model compatibility",
+      "passed": true,
+      "detail": "Scanned 2 case type(s) (Shock-Resistant, Slim) for device-specific terms (magsafe, iphone, samsung, airtag, apple watch) - none found, so every phone model is treated as compatible with every case type."
+    },
+    {
+      "name": "Frontend phone-selector scale (advisory)",
+      "passed": true,
+      "detail": "95 phone models total - this is a lot of options for a single dropdown/selector; relay this to whoever owns the storefront frontend so they can decide on search/grouping. Not verifiable from this backend-only repository."
+    }
+  ],
+  "preflightPassed": true,
+  "productOutcomes": [
+    {
+      "slug": "madrid-royalty",
+      "nameEn": "Real Madrid Royalty",
+      "sourceFilename": "imgi_107_MadridRoyaltyPhoneCase.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "ronaldo-discipline",
+      "nameEn": "Ronaldo Discipline",
+      "sourceFilename": "imgi_99_d9369755-09ef-4045-b123-ac1c165d48c9copy9.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "zamalek-20",
+      "nameEn": "Zamalek SC No. 20",
+      "sourceFilename": "imgi_124_d9369755-09ef-4045-b123-ac1c165d48c9copy5.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "barcelona-mes-que-un-club",
+      "nameEn": "Barcelona – Més Que Un Club",
+      "sourceFilename": "imgi_132_d9369755-09ef-4045-b123-ac1c165d48c9copy36.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "visca-barca",
+      "nameEn": "Visca Barça Stripes",
+      "sourceFilename": "imgi_140_d9369755-09ef-4045-b123-ac1c165d48c9copy44.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "zamalek-brushstroke",
+      "nameEn": "Zamalek Brushstroke",
+      "sourceFilename": "imgi_148_d9369755-09ef-4045-b123-ac1c165d48c9copy58.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "ronaldo-united-7",
+      "nameEn": "Cristiano Ronaldo United No. 7",
+      "sourceFilename": "imgi_156_d9369755-09ef-4045-b123-ac1c165d48c9copy37.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "ronaldo-sketch-art",
+      "nameEn": "Ronaldo Sketch Art",
+      "sourceFilename": "imgi_164_7_1bbe1a5d-0403-4639-9720-bec4e269dd2e.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "hala-madrid-collage",
+      "nameEn": "Hala Madrid Collage",
+      "sourceFilename": "imgi_181_d9369755-09ef-4045-b123-ac1c165d48c9copy34.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "madrid-empire",
+      "nameEn": "Real Madrid Empire",
+      "sourceFilename": "imgi_189_MadridEmpirePhoneCase.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "barcelona-classic-crest",
+      "nameEn": "Barcelona Classic Crest",
+      "sourceFilename": "imgi_206_d9369755-09ef-4045-b123-ac1c165d48c9copy25_714f7e12-f19b-4517-9322-17d1c069795b.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "74-never-forget",
+      "nameEn": "74 Never Forget",
+      "sourceFilename": "imgi_214_d9369755-09ef-4045-b123-ac1c165d48c9copy16.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "ronaldo-newspaper-collage",
+      "nameEn": "Ronaldo Newspaper Collage",
+      "sourceFilename": "imgi_222_d9369755-09ef-4045-b123-ac1c165d48c9copy60.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "hala-madrid-mono",
+      "nameEn": "Hala Madrid Mono",
+      "sourceFilename": "imgi_230_HalaMadridPhoneCase.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "al-ahly-champion-22",
+      "nameEn": "Al Ahly Champion No. 22",
+      "sourceFilename": "imgi_247_d9369755-09ef-4045-b123-ac1c165d48c9copy59.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "al-ahly-century-crest",
+      "nameEn": "Al Ahly Club of the Century",
+      "sourceFilename": "imgi_255_d9369755-09ef-4045-b123-ac1c165d48c9copy3.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "cr7-real-madrid-fade",
+      "nameEn": "CR7 Real Madrid Fade",
+      "sourceFilename": "imgi_263_d9369755-09ef-4045-b123-ac1c165d48c9copy7.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "al-ahly-grunge",
+      "nameEn": "Al Ahly Grunge",
+      "sourceFilename": "imgi_271_d9369755-09ef-4045-b123-ac1c165d48c9copy35.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "ronaldo-never-give-up",
+      "nameEn": "Ronaldo – Never Give Up",
+      "sourceFilename": "imgi_279_d9369755-09ef-4045-b123-ac1c165d48c9copy49.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "barcelona-anime-squad",
+      "nameEn": "Barcelona Anime Squad",
+      "sourceFilename": "imgi_287_d9369755-09ef-4045-b123-ac1c165d48c9copy28.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "ronaldo-gold-collage",
+      "nameEn": "Ronaldo Gold Collage",
+      "sourceFilename": "imgi_295_d9369755-09ef-4045-b123-ac1c165d48c9copy48.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "zamalek-knight",
+      "nameEn": "Zamalek Knight Emblem",
+      "sourceFilename": "imgi_303_d9369755-09ef-4045-b123-ac1c165d48c9copy20.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "al-ahly-eagle-textured",
+      "nameEn": "Al Ahly Eagle Textured",
+      "sourceFilename": "imgi_311_d9369755-09ef-4045-b123-ac1c165d48c9copy57.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "barcelona-textured-stripes",
+      "nameEn": "Barcelona Textured Stripes",
+      "sourceFilename": "imgi_319_d9369755-09ef-4045-b123-ac1c165d48c9copy54.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "real-madrid-wordmark-white",
+      "nameEn": "Real Madrid Wordmark (White)",
+      "sourceFilename": "imgi_327_d9369755-09ef-4045-b123-ac1c165d48c9copy45.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "al-ahly-arabic-slogan",
+      "nameEn": "Al Ahly Arabic Slogan",
+      "sourceFilename": "imgi_335_d9369755-09ef-4045-b123-ac1c165d48c9copy11.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "real-madrid-gold-dragon",
+      "nameEn": "Real Madrid Gold Dragon",
+      "sourceFilename": "imgi_343_d9369755-09ef-4045-b123-ac1c165d48c9copy32.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "hala-madrid-vintage-collage",
+      "nameEn": "Hala Madrid Vintage Collage",
+      "sourceFilename": "imgi_351_d9369755-09ef-4045-b123-ac1c165d48c9copy6.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "real-madrid-trophy-silhouette",
+      "nameEn": "Real Madrid Trophy Silhouette",
+      "sourceFilename": "imgi_359_d9369755-09ef-4045-b123-ac1c165d48c9copy47.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "pedri-gonzalez",
+      "nameEn": "Pedri González",
+      "sourceFilename": "imgi_367_d9369755-09ef-4045-b123-ac1c165d48c9copy26_1a73fd0e-c690-4ce3-b4ed-5b7f50fbf4f1.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "zamalek-tv-wall",
+      "nameEn": "Zamalek TV Wall",
+      "sourceFilename": "imgi_375_d9369755-09ef-4045-b123-ac1c165d48c9copy50.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "hala-madrid-purple",
+      "nameEn": "Hala Madrid Purple",
+      "sourceFilename": "imgi_383_d9369755-09ef-4045-b123-ac1c165d48c9copy1.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "zamalek-comic-strip",
+      "nameEn": "Zamalek Comic Strip",
+      "sourceFilename": "imgi_391_d9369755-09ef-4045-b123-ac1c165d48c9copy19_08b78123-a4f5-4d04-8773-0f38e461a546.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "abo-trika-tribute",
+      "nameEn": "Abo Trika Tribute",
+      "sourceFilename": "imgi_399_d9369755-09ef-4045-b123-ac1c165d48c9copy2.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "real-madrid-wordmark-black",
+      "nameEn": "Real Madrid Wordmark (Black)",
+      "sourceFilename": "imgi_407_d9369755-09ef-4045-b123-ac1c165d48c9copy46.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "barcelona-wordmark-red",
+      "nameEn": "Barcelona Wordmark",
+      "sourceFilename": "imgi_415_d9369755-09ef-4045-b123-ac1c165d48c9copy4.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "zamalek-85-45",
+      "nameEn": "Zamalek 85:45",
+      "sourceFilename": "imgi_423_d9369755-09ef-4045-b123-ac1c165d48c9copy14.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "zamalek-mono-1911",
+      "nameEn": "Zamalek Mono 1911",
+      "sourceFilename": "imgi_431_d9369755-09ef-4045-b123-ac1c165d48c9copy56.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "ronaldo-birthday",
+      "nameEn": "Ronaldo Feliz Cumpleaños",
+      "sourceFilename": "imgi_439_d9369755-09ef-4045-b123-ac1c165d48c9copy53.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "al-ahly-22-collage",
+      "nameEn": "Al Ahly No. 22 Collage",
+      "sourceFilename": "imgi_447_d9369755-09ef-4045-b123-ac1c165d48c9copy12.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "shikabala-10",
+      "nameEn": "Shikabala No. 10",
+      "sourceFilename": "imgi_455_d9369755-09ef-4045-b123-ac1c165d48c9copy51.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "lamine-yamal-19",
+      "nameEn": "Lamine Yamal No. 19",
+      "sourceFilename": "imgi_463_d9369755-09ef-4045-b123-ac1c165d48c9copy27.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "barca-barca-barca",
+      "nameEn": "Barça Barça Barça",
+      "sourceFilename": "imgi_471_d9369755-09ef-4045-b123-ac1c165d48c9copy29.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "barca-stripes-sticker",
+      "nameEn": "Barça Stripes Sticker",
+      "sourceFilename": "imgi_479_d9369755-09ef-4045-b123-ac1c165d48c9copy55.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "i-am-madridista",
+      "nameEn": "I Am Madridista",
+      "sourceFilename": "imgi_487_d9369755-09ef-4045-b123-ac1c165d48c9copy43.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "real-madrid-legends-dark",
+      "nameEn": "Real Madrid Legends",
+      "sourceFilename": "imgi_495_d9369755-09ef-4045-b123-ac1c165d48c9copy33.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "a-por-la-undecima",
+      "nameEn": "A Por La Undécima",
+      "sourceFilename": "imgi_503_d9369755-09ef-4045-b123-ac1c165d48c9copy30.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "crimson-weathered-stripe",
+      "nameEn": "Crimson Weathered Stripe",
+      "sourceFilename": "imgi_511_d9369755-09ef-4045-b123-ac1c165d48c9copy18.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "al-ahly-vintage-legend",
+      "nameEn": "Al Ahly Vintage Legend",
+      "sourceFilename": "imgi_519_d9369755-09ef-4045-b123-ac1c165d48c9copy15.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "cristiano-poster",
+      "nameEn": "Cristiano Poster",
+      "sourceFilename": "imgi_74_d9369755-09ef-4045-b123-ac1c165d48c9copy8.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    },
+    {
+      "slug": "curva-sud",
+      "nameEn": "Curva Sud Ultras",
+      "sourceFilename": "imgi_91_d9369755-09ef-4045-b123-ac1c165d48c9copy10.jpg",
+      "outcome": "reconciled",
+      "detail": "Added 0 missing variant(s).",
+      "variantsCreated": 0,
+      "variantsAlreadyExisted": 190,
+      "mediaAdded": false
+    }
+  ],
+  "phoneBrandsUpserted": 10,
+  "phoneModelsUpserted": 95,
+  "caseTypesReused": 2,
+  "collectionsUpserted": 2,
+  "productsCreated": 0,
+  "productsReconciled": 51,
+  "productsSkippedExisting": 0,
+  "productsSkippedUncategorized": 0,
+  "mediaUploaded": 0,
+  "variantsCreated": 0,
+  "variantsAlreadyExisted": 9690,
+  "errors": []
+}

@@ -159,6 +159,99 @@ describe('Cart (e2e)', () => {
       expect(removed.body.items).toHaveLength(0);
     });
 
+    it('accepts a note when adding an item and returns it on the cart', async () => {
+      const { variant } = await seedPublishedVariant(1000);
+      const { token } = await createCart();
+
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/cart/items')
+        .set('X-Cart-Token', token)
+        .send({ variantId: variant.id, quantity: 1, note: '  put in a black box  ' })
+        .expect(201);
+
+      expect(res.body.items[0].note).toBe('put in a black box');
+    });
+
+    it('defaults note to null when not provided', async () => {
+      const { variant } = await seedPublishedVariant(1000);
+      const { token } = await createCart();
+
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/cart/items')
+        .set('X-Cart-Token', token)
+        .send({ variantId: variant.id, quantity: 1 })
+        .expect(201);
+
+      expect(res.body.items[0].note).toBeNull();
+    });
+
+    it('updates only the note via PATCH without touching quantity', async () => {
+      const { variant } = await seedPublishedVariant(1000);
+      const { token } = await createCart();
+      const added = await request(app.getHttpServer())
+        .post('/api/v1/cart/items')
+        .set('X-Cart-Token', token)
+        .send({ variantId: variant.id, quantity: 2 })
+        .expect(201);
+      const itemId = added.body.items[0].id;
+
+      const res = await request(app.getHttpServer())
+        .patch(`/api/v1/cart/items/${itemId}`)
+        .set('X-Cart-Token', token)
+        .send({ note: 'make sure logo is centered' })
+        .expect(200);
+
+      expect(res.body.items[0].quantity).toBe(2);
+      expect(res.body.items[0].note).toBe('make sure logo is centered');
+    });
+
+    it('clears a note by sending an empty string, and treats null the same way', async () => {
+      const { variant } = await seedPublishedVariant(1000);
+      const { token } = await createCart();
+      const added = await request(app.getHttpServer())
+        .post('/api/v1/cart/items')
+        .set('X-Cart-Token', token)
+        .send({ variantId: variant.id, quantity: 1, note: 'some note' })
+        .expect(201);
+      const itemId = added.body.items[0].id;
+
+      const res = await request(app.getHttpServer())
+        .patch(`/api/v1/cart/items/${itemId}`)
+        .set('X-Cart-Token', token)
+        .send({ note: '' })
+        .expect(200);
+
+      expect(res.body.items[0].note).toBeNull();
+    });
+
+    it('rejects a PATCH with neither quantity nor note', async () => {
+      const { variant } = await seedPublishedVariant(1000);
+      const { token } = await createCart();
+      const added = await request(app.getHttpServer())
+        .post('/api/v1/cart/items')
+        .set('X-Cart-Token', token)
+        .send({ variantId: variant.id, quantity: 1 })
+        .expect(201);
+      const itemId = added.body.items[0].id;
+
+      await request(app.getHttpServer())
+        .patch(`/api/v1/cart/items/${itemId}`)
+        .set('X-Cart-Token', token)
+        .send({})
+        .expect(400);
+    });
+
+    it('rejects a note over the max length', async () => {
+      const { variant } = await seedPublishedVariant(1000);
+      const { token } = await createCart();
+
+      await request(app.getHttpServer())
+        .post('/api/v1/cart/items')
+        .set('X-Cart-Token', token)
+        .send({ variantId: variant.id, quantity: 1, note: 'a'.repeat(501) })
+        .expect(400);
+    });
+
     it('removes an item via DELETE', async () => {
       const { variant } = await seedPublishedVariant(1000);
       const { token } = await createCart();

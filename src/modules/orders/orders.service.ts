@@ -18,6 +18,7 @@ import type { AuthenticatedStaff } from '../auth/types/authenticated-staff.type'
 import {
   CART_INCLUDE,
   CartPricingService,
+  effectiveUnitPrice,
   findCouponValidityError,
 } from '../cart/cart-pricing.service';
 import { ReservationsService } from '../inventory/reservations/reservations.service';
@@ -34,7 +35,10 @@ import { allocateDiscount, hashOrderRequestPayload } from './order-pricing.util'
 
 const ORDER_INCLUDE = {
   items: {
-    include: { returns: { orderBy: { createdAt: 'asc' as const } } },
+    include: {
+      returns: { orderBy: { createdAt: 'asc' as const } },
+      customDesign: true,
+    },
     orderBy: { createdAt: 'asc' as const },
   },
   receipts: { orderBy: { createdAt: 'asc' as const } },
@@ -307,7 +311,7 @@ export class OrdersService {
           lineIndex,
           variantId: item.variant.id,
           phoneModelId: item.variant.phoneModelId,
-          unitPrice: item.variant.price,
+          unitPrice: effectiveUnitPrice(item.variant),
           quantity: item.quantity,
           currency: item.variant.currency,
         }));
@@ -366,7 +370,9 @@ export class OrdersService {
           }
         });
 
-        const draftSubtotals = drafts.map((draft) => draft.item.variant.price * draft.quantity);
+        const draftSubtotals = drafts.map(
+          (draft) => effectiveUnitPrice(draft.item.variant) * draft.quantity,
+        );
         // Allocated against each draft's REMAINING amount after its own
         // bundle discount, not its raw subtotal - otherwise a heavily
         // bundle-discounted line could receive a further, proportional-
@@ -438,12 +444,22 @@ export class OrdersService {
           bundleInstanceDbIds.push(created.id);
         }
 
-        await tx.orderItem.createMany({
-          data: drafts.map((draft, index) => {
-            const { item, quantity } = draft;
-            const lineSubtotal = draftSubtotals[index];
-            const lineDiscount = draftCouponDiscounts[index];
-            return {
+        // Individual `create` calls (not `createMany`) because a
+        // personalized draft needs the real, newly-created OrderItem id
+        // to write its OrderItemCustomDesign snapshot row right after -
+        // order sizes here are always small (a handful of lines), so this
+        // costs nothing meaningful over a bulk insert.
+        for (let index = 0; index < drafts.length; index += 1) {
+          const draft = drafts[index];
+          const { item, quantity } = draft;
+          const lineSubtotal = draftSubtotals[index];
+          const lineDiscount = draftCouponDiscounts[index];
+          const customizationPrice = item.variant.isPersonalizable
+            ? item.variant.customizationPrice
+            : 0;
+
+          const createdItem = await tx.orderItem.create({
+            data: {
               orderId: createdOrder.id,
               variantId: item.variant.id,
               productNameEn: item.variant.product.nameEn,
@@ -453,7 +469,9 @@ export class OrdersService {
               phoneModelNameAr: item.variant.phoneModel?.nameAr,
               caseTypeNameEn: item.variant.caseType?.nameEn,
               caseTypeNameAr: item.variant.caseType?.nameAr,
-              unitPrice: item.variant.price,
+              note: item.note,
+              unitPrice: effectiveUnitPrice(item.variant),
+              customizationPrice,
               quantity,
               lineSubtotal,
               lineDiscount,
@@ -463,9 +481,45 @@ export class OrdersService {
                   : null,
               bundleDiscount: draft.bundleDiscount,
               lineTotal: lineSubtotal - lineDiscount - draft.bundleDiscount,
-            };
-          }),
-        });
+            },
+          });
+
+          // Immutable copy of the cart line's design, made now so the
+          // order keeps its own original/print-ready/preview files even if
+          // the source CustomDesign is later replaced/detached on the cart
+          // - see OrderItemCustomDesign in prisma/schema.prisma. A single
+          // cart line split across two drafts (bundle pairing) gets the
+          // SAME design copied onto both resulting OrderItem rows, exactly
+          // like every other snapshot field here (productNameEn etc).
+          if (item.customDesign) {
+            const design = item.customDesign;
+            await tx.orderItemCustomDesign.create({
+              data: {
+                orderItemId: createdItem.id,
+                sourceCustomDesignId: design.id,
+                originalStorageKey: design.originalStorageKey,
+                originalMimeType: design.originalMimeType,
+                originalSizeBytes: design.originalSizeBytes,
+                originalWidth: design.originalWidth,
+                originalHeight: design.originalHeight,
+                printFileStorageKey: design.printFileStorageKey,
+                printFileMimeType: design.printFileMimeType,
+                printFileSizeBytes: design.printFileSizeBytes,
+                previewStorageKey: design.previewStorageKey,
+                previewMimeType: design.previewMimeType,
+                previewSizeBytes: design.previewSizeBytes,
+                fitMode: design.fitMode,
+                printWidthPx: design.printWidthPx,
+                printHeightPx: design.printHeightPx,
+                printDpi: design.printDpi,
+                printSafeMarginPx: design.printSafeMarginPx,
+                printOutputFormat: design.printOutputFormat,
+                printOutputQuality: design.printOutputQuality,
+                designCreatedAt: design.createdAt,
+              },
+            });
+          }
+        }
 
         if (dto.paymentMethod === OrderPaymentMethod.INSTAPAY_MANUAL && dto.receiptId) {
           await this.receiptsService.attachToOrderInTransaction(
