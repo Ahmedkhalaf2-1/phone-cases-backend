@@ -22,21 +22,68 @@ const FRONTEND_MODEL_COUNT_ADVISORY_THRESHOLD = 60;
 
 interface CliOptions {
   sourceDir: string;
+  manifestPath?: string;
   commit: boolean;
   allowUncategorized: boolean;
+}
+
+type CollectionDefinitions = typeof COLLECTIONS;
+
+interface BatchManifest {
+  collections: CollectionDefinitions;
+  designs: Record<string, DesignManifestEntry>;
 }
 
 function parseArgs(argv: string[]): CliOptions {
   const sourceIndex = argv.indexOf('--source');
   const sourceDir = sourceIndex >= 0 ? argv[sourceIndex + 1] : undefined;
   if (!sourceDir) {
-    throw new Error('Usage: import:catalog -- --source <folder> [--commit] [--allow-uncategorized]');
+    throw new Error(
+      'Usage: import:catalog -- --source <folder> [--manifest <file.json>] [--commit] [--allow-uncategorized]',
+    );
+  }
+  const manifestIndex = argv.indexOf('--manifest');
+  const manifestPath = manifestIndex >= 0 ? argv[manifestIndex + 1] : undefined;
+  if (manifestIndex >= 0 && !manifestPath) {
+    throw new Error('--manifest needs a path to a JSON manifest file.');
   }
   return {
     sourceDir,
+    manifestPath,
     commit: argv.includes('--commit'),
     allowUncategorized: argv.includes('--allow-uncategorized'),
   };
+}
+
+/**
+ * design-manifest.ts only covers the original `photos/` batch. A later batch
+ * ships its own JSON manifest (same shape, see manifests/) via --manifest,
+ * so a new batch doesn't mean editing this script.
+ */
+async function loadManifest(manifestPath: string | undefined): Promise<BatchManifest> {
+  if (!manifestPath) return { collections: COLLECTIONS, designs: DESIGN_MANIFEST };
+
+  const parsed = JSON.parse(await readFile(manifestPath, 'utf8')) as Partial<BatchManifest>;
+  if (!parsed.collections || !parsed.designs) {
+    throw new Error(`Manifest ${manifestPath} must have "collections" and "designs" objects.`);
+  }
+  const slugs = new Set<string>();
+  for (const [filename, entry] of Object.entries(parsed.designs)) {
+    if (!entry.slug || !entry.nameEn || !entry.nameAr || !Array.isArray(entry.collections)) {
+      throw new Error(`Manifest entry "${filename}" needs slug, nameEn, nameAr and collections.`);
+    }
+    if (slugs.has(entry.slug)) {
+      throw new Error(`Manifest slug "${entry.slug}" is used more than once.`);
+    }
+    slugs.add(entry.slug);
+    const unknown = entry.collections.filter((c) => !(c in parsed.collections!));
+    if (unknown.length > 0) {
+      throw new Error(
+        `Manifest entry "${filename}" references undefined collection(s): ${unknown.join(', ')}.`,
+      );
+    }
+  }
+  return { collections: parsed.collections, designs: parsed.designs };
 }
 
 function buildSku(productSlug: string, phoneModelSlug: string, caseTypeSlug: string): string {
@@ -51,6 +98,7 @@ function chunk<T>(items: T[], size: number): T[][] {
 
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
+  const manifest = await loadManifest(options.manifestPath);
   const startedAt = new Date().toISOString();
   const mode: ImportReport['mode'] = options.commit ? 'commit' : 'dry-run';
 
@@ -119,7 +167,7 @@ async function main(): Promise<void> {
 
     const categorized: Array<{ cluster: DedupeCluster; entry: DesignManifestEntry }> = [];
     for (const cluster of clusters) {
-      const entry = DESIGN_MANIFEST[cluster.chosen.filename];
+      const entry = manifest.designs[cluster.chosen.filename];
       if (entry) {
         categorized.push({ cluster, entry });
       } else {
@@ -235,7 +283,7 @@ async function main(): Promise<void> {
 
     if (blockedByUncategorized) {
       report.errors.push(
-        `${report.uncategorized.length} survivor(s) have no design-manifest.ts entry. Add them, or re-run with ` +
+        `${report.uncategorized.length} survivor(s) have no design-manifest entry. Add them, or re-run with ` +
           '--allow-uncategorized to skip them.',
       );
     }
@@ -277,7 +325,7 @@ async function main(): Promise<void> {
         phoneModelIdBySlug.set(model.slug, row.id);
         report.phoneModelsUpserted++;
       }
-      for (const [key, collection] of Object.entries(COLLECTIONS)) {
+      for (const [key, collection] of Object.entries(manifest.collections)) {
         await prisma.collection.upsert({
           where: { slug: key },
           update: {},
@@ -288,7 +336,7 @@ async function main(): Promise<void> {
     } else {
       report.phoneBrandsUpserted = PHONE_BRANDS.length;
       report.phoneModelsUpserted = PHONE_MODELS.length;
-      report.collectionsUpserted = Object.keys(COLLECTIONS).length;
+      report.collectionsUpserted = Object.keys(manifest.collections).length;
     }
     report.caseTypesReused = caseTypes.length;
 
