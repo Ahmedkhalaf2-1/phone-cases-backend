@@ -20,7 +20,7 @@ const prisma = new PrismaClient({ adapter });
 
 const SLUG = process.env.CUSTOM_CASE_SLUG ?? 'custom-case';
 const PRICE = Number(process.env.CUSTOM_CASE_PRICE ?? 25000);
-const CUSTOMIZATION_PRICE = Number(process.env.CUSTOM_CASE_CUSTOMIZATION_PRICE ?? 5000);
+const CUSTOMIZATION_PRICE = Number(process.env.CUSTOM_CASE_CUSTOMIZATION_PRICE ?? 0);
 const DRY_RUN = process.env.DRY_RUN === '1';
 
 async function main(): Promise<void> {
