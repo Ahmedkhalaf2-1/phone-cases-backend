@@ -7,7 +7,9 @@ import {
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
+  Put,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -21,6 +23,8 @@ import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../common/guards/roles.guard';
 import type { AuthenticatedStaff } from '../../auth/types/authenticated-staff.type';
 import { AttachMediaDto } from './dto/attach-media.dto';
+import { ReorderProductMediaDto } from './dto/reorder-media.dto';
+import { UpdateProductMediaDto } from './dto/update-product-media.dto';
 import { UploadMediaDto } from './dto/upload-media.dto';
 import { MediaService } from './media.service';
 
@@ -66,6 +70,27 @@ export class MediaAdminController {
     @CurrentStaff() actor: AuthenticatedStaff,
   ) {
     return this.mediaService.attachToProduct(productId, dto, actor);
+  }
+
+  @Put('products/:productId/order')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  reorderProductMedia(
+    @Param('productId', ParseUUIDPipe) productId: string,
+    @Body() dto: ReorderProductMediaDto,
+    @CurrentStaff() actor: AuthenticatedStaff,
+  ) {
+    return this.mediaService.reorderProductMedia(productId, dto, actor);
+  }
+
+  @Patch('products/:productId/:mediaAssetId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  updateProductMedia(
+    @Param('productId', ParseUUIDPipe) productId: string,
+    @Param('mediaAssetId', ParseUUIDPipe) mediaAssetId: string,
+    @Body() dto: UpdateProductMediaDto,
+    @CurrentStaff() actor: AuthenticatedStaff,
+  ) {
+    return this.mediaService.updateProductMedia(productId, mediaAssetId, dto, actor);
   }
 
   @Delete('products/:productId/:mediaAssetId')

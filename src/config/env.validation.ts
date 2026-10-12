@@ -50,6 +50,12 @@ class EnvironmentVariables {
   @IsNotEmpty()
   APP_URL!: string;
 
+  // Externally reachable origin used to build media URLs returned to
+  // clients (e.g. a LAN IP or public domain). Falls back to APP_URL.
+  @IsOptional()
+  @IsString()
+  PUBLIC_BASE_URL?: string;
+
   @IsString()
   @IsNotEmpty()
   DATABASE_URL!: string;

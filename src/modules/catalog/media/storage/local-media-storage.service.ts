@@ -20,7 +20,9 @@ export class LocalMediaStorageService implements MediaStorageDriver {
 
   constructor(configService: ConfigService) {
     this.rootDir = path.resolve(process.cwd(), configService.getOrThrow<string>('MEDIA_LOCAL_DIR'));
-    this.baseUrl = `${configService.getOrThrow<string>('APP_URL')}/uploads`;
+    const origin =
+      configService.get<string>('PUBLIC_BASE_URL') || configService.getOrThrow<string>('APP_URL');
+    this.baseUrl = `${origin.replace(/\/+$/, '')}/uploads`;
   }
 
   async save(buffer: Buffer, _originalFilename: string, mimeType: string): Promise<SavedFile> {

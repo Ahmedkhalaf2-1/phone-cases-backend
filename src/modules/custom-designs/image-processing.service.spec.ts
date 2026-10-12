@@ -89,32 +89,6 @@ describe('ImageProcessingService', () => {
     });
   });
 
-  describe('assertMeetsMinimumResolution', () => {
-    it('passes when the source exactly matches the print target', () => {
-      expect(() =>
-        service.assertMeetsMinimumResolution({ width: 400, height: 800 }, SPEC),
-      ).not.toThrow();
-    });
-
-    it('passes when the source is larger than the print target on both axes', () => {
-      expect(() =>
-        service.assertMeetsMinimumResolution({ width: 4000, height: 8000 }, SPEC),
-      ).not.toThrow();
-    });
-
-    it('rejects a source narrower than the print target', () => {
-      expect(() => service.assertMeetsMinimumResolution({ width: 399, height: 900 }, SPEC)).toThrow(
-        BadRequestException,
-      );
-    });
-
-    it('rejects a source shorter than the print target', () => {
-      expect(() => service.assertMeetsMinimumResolution({ width: 500, height: 799 }, SPEC)).toThrow(
-        BadRequestException,
-      );
-    });
-  });
-
   describe('renderPrintFile', () => {
     it('renders exactly the target canvas size regardless of source aspect ratio', async () => {
       // Source is much wider-than-tall than the (400x800, portrait) target
@@ -128,8 +102,16 @@ describe('ImageProcessingService', () => {
       expect(metadata.format).toBe('jpeg');
     });
 
-    it('never upscales beyond the source when it exactly matches the target', async () => {
+    it('keeps the exact target size when the source matches it', async () => {
       const source = await solidImage(SPEC.widthPx, SPEC.heightPx);
+      const rendered = await service.renderPrintFile(source, SPEC);
+      const metadata = await sharp(rendered).metadata();
+      expect(metadata.width).toBe(SPEC.widthPx);
+      expect(metadata.height).toBe(SPEC.heightPx);
+    });
+
+    it('scales a source smaller than the target up to the exact target canvas', async () => {
+      const source = await solidImage(100, 60);
       const rendered = await service.renderPrintFile(source, SPEC);
       const metadata = await sharp(rendered).metadata();
       expect(metadata.width).toBe(SPEC.widthPx);

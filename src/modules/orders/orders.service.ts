@@ -12,6 +12,7 @@ import {
 import { AppException, ResourceNotFoundException } from '../../common/exceptions/app.exception';
 import { buildPaginatedResult, PaginatedResult } from '../../common/dto/paginated-result';
 import { normalizePhoneNumber } from '../../common/utils/phone.util';
+import { sanitizeOrderNote } from '../../common/utils/sanitize-note.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import type { AuthenticatedStaff } from '../auth/types/authenticated-staff.type';
@@ -123,6 +124,8 @@ export class OrdersService {
 
     // Cheap, cart-independent structural checks - fail fast without
     // opening a transaction for an obviously malformed request.
+    const customerNote = sanitizeOrderNote(dto.customerNote) ?? null;
+
     if (dto.paymentMethod === OrderPaymentMethod.CASH_ON_DELIVERY && dto.receiptId) {
       throw new BadRequestException('receiptId must not be provided for CASH_ON_DELIVERY orders');
     }
@@ -423,6 +426,7 @@ export class OrdersService {
             shippingAddressLine1: dto.shippingAddressLine1,
             shippingAddressLine2: dto.shippingAddressLine2,
             shippingPostalCode: dto.shippingPostalCode,
+            customerNote,
           },
         });
 

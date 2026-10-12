@@ -55,6 +55,53 @@ export type AdminProductWithRelations = Prisma.ProductGetPayload<{
   include: typeof ADMIN_PRODUCT_INCLUDE;
 }>;
 
+// The admin LIST loads ~100 products x up to ~190 variants each, so it
+// deliberately skips the heavy per-variant relations (variant media,
+// print specification, full stock item row) that only the detail view
+// needs - this was the bulk of a ~28MB / ~3s page. Everything the list
+// UI shows (price, flags, phone model/case type labels, stock counters)
+// is still selected.
+const ADMIN_LIST_INCLUDE = {
+  variants: {
+    select: {
+      id: true,
+      productId: true,
+      sku: true,
+      phoneModelId: true,
+      caseTypeId: true,
+      price: true,
+      compareAtPrice: true,
+      currency: true,
+      isActive: true,
+      stockItemId: true,
+      isUnlimitedStock: true,
+      isPersonalizable: true,
+      customizationPrice: true,
+      createdAt: true,
+      updatedAt: true,
+      phoneModel: {
+        select: { id: true, slug: true, nameEn: true, nameAr: true, brandId: true },
+      },
+      caseType: { select: { id: true, slug: true, nameEn: true, nameAr: true } },
+      stockItem: { select: { id: true, onHand: true, reserved: true } },
+    },
+    orderBy: { createdAt: 'asc' as const },
+  },
+  collections: {
+    select: {
+      collection: { select: { id: true, slug: true, nameEn: true, nameAr: true } },
+    },
+  },
+  media: {
+    include: { mediaAsset: true },
+    orderBy: { displayOrder: 'asc' as const },
+  },
+} satisfies Prisma.ProductInclude;
+
+export type AdminListProduct = Prisma.ProductGetPayload<{
+  include: typeof ADMIN_LIST_INCLUDE;
+}>;
+
 @Injectable()
 export class ProductsService {
   constructor(
@@ -165,9 +212,7 @@ export class ProductsService {
     return product;
   }
 
-  async findAllForAdmin(
-    query: AdminProductQueryDto,
-  ): Promise<PaginatedResult<AdminProductWithRelations>> {
+  async findAllForAdmin(query: AdminProductQueryDto): Promise<PaginatedResult<AdminListProduct>> {
     const where: Prisma.ProductWhereInput = {
       ...(query.status ? { status: query.status } : {}),
       ...(query.collectionId
@@ -179,8 +224,8 @@ export class ProductsService {
     const [items, totalItems] = await this.prisma.$transaction([
       this.prisma.product.findMany({
         where,
-        include: ADMIN_PRODUCT_INCLUDE,
-        orderBy: { createdAt: 'desc' },
+        include: ADMIN_LIST_INCLUDE,
+        orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
         skip: query.skip,
         take: query.take,
       }),
@@ -333,6 +378,7 @@ export class ProductsService {
   ): Promise<Prisma.ProductVariantWhereInput> {
     const base: Prisma.ProductVariantWhereInput = {
       isActive: true,
+      ...(query.personalizable ? { isPersonalizable: true } : {}),
       ...(query.phoneModel ? { phoneModel: { slug: query.phoneModel } } : {}),
       ...(query.caseType ? { caseType: { slug: query.caseType } } : {}),
       ...(query.priceMin !== undefined || query.priceMax !== undefined
@@ -373,6 +419,7 @@ export class ProductsService {
   private buildSearchFilter(q: string): Prisma.ProductWhereInput {
     return {
       OR: [
+        { slug: { contains: q, mode: 'insensitive' } },
         { nameEn: { contains: q, mode: 'insensitive' } },
         { nameAr: { contains: q, mode: 'insensitive' } },
         { descriptionEn: { contains: q, mode: 'insensitive' } },

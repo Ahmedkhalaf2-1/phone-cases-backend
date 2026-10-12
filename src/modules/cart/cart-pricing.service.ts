@@ -61,6 +61,15 @@ export interface CartItemView {
   /** This line's share of any applied bundle discount(s) - see bundleDiscountTotal. */
   bundleDiscount: number;
   isPersonalized: boolean;
+  /** Same as customDesign?.id - convenience for clients. */
+  customDesignId: string | null;
+  /**
+   * Surcharge for personalization, in minor units. ALREADY INCLUDED in
+   * unitPrice and lineSubtotal (unitPrice = variant.price +
+   * customizationPrice) - shown separately for display only, never add it
+   * again. 0 for non-personalizable variants.
+   */
+  customizationPrice: number;
   customDesign: { id: string } | null;
 }
 
@@ -286,6 +295,8 @@ export class CartPricingService {
       unavailableReason,
       bundleDiscount: 0,
       isPersonalized: item.isPersonalized,
+      customDesignId: item.customDesign?.id ?? null,
+      customizationPrice: variant.isPersonalizable ? variant.customizationPrice : 0,
       customDesign: item.customDesign ? { id: item.customDesign.id } : null,
     };
   }

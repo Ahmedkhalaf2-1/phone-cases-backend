@@ -13,6 +13,11 @@ import {
   MinLength,
 } from 'class-validator';
 
+// Generous raw ceiling so surrounding whitespace never causes a rejection
+// before sanitizeOrderNote trims it - the real, post-trim cap
+// (ORDER_NOTE_MAX_LENGTH) is enforced there, not here.
+const CUSTOMER_NOTE_RAW_MAX_LENGTH = 2000;
+
 // This endpoint is public and unauthenticated (guest checkout) and every
 // field below is persisted permanently as part of an immutable order
 // snapshot - an upper bound on each keeps an anonymous caller from storing
@@ -105,4 +110,15 @@ export class CreateOrderDto {
   @IsOptional()
   @IsUUID()
   receiptId?: string;
+
+  @ApiPropertyOptional({
+    maxLength: 1000,
+    description:
+      'Free-text note for the whole order (e.g. "call before delivery"). Per-item instructions ' +
+      'belong on the cart item note instead.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(CUSTOMER_NOTE_RAW_MAX_LENGTH)
+  customerNote?: string;
 }

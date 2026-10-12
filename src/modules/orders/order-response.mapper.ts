@@ -46,6 +46,8 @@ export function toGuestOrderView(order: OrderWithItems, locale: Locale = DEFAULT
       addressLine2: order.shippingAddressLine2,
       postalCode: order.shippingPostalCode,
     },
+    customerNote: order.customerNote,
+    hasCustomDesign: order.items.some((item) => item.customDesign),
     items: order.items.map((item) => ({
       id: item.id,
       sku: item.variantSku,
@@ -57,6 +59,8 @@ export function toGuestOrderView(order: OrderWithItems, locale: Locale = DEFAULT
         ? pickLocalized(item.caseTypeNameEn, item.caseTypeNameAr, locale)
         : null,
       note: item.note,
+      hasCustomDesign: Boolean(item.customDesign),
+      customizationPrice: item.customizationPrice,
       unitPrice: item.unitPrice,
       quantity: item.quantity,
       lineSubtotal: item.lineSubtotal,
@@ -65,5 +69,52 @@ export function toGuestOrderView(order: OrderWithItems, locale: Locale = DEFAULT
       lineTotal: item.lineTotal,
     })),
     createdAt: order.createdAt,
+  };
+}
+
+type OrderItemWithDesign = OrderWithItems['items'][number];
+
+/**
+ * Admin-facing view of a personalized line's design snapshot. Never
+ * exposes storage keys; the files are only reachable through the
+ * role-gated GET /admin/order-items/:orderItemId/custom-design/{original,
+ * print-file,preview} endpoints, keyed by the order item's id.
+ */
+export function toAdminCustomDesignView(item: OrderItemWithDesign) {
+  const design = item.customDesign;
+  if (!design) return null;
+  const base = `/api/v1/admin/order-items/${item.id}/custom-design`;
+  return {
+    id: design.id,
+    fitMode: design.fitMode,
+    original: {
+      mimeType: design.originalMimeType,
+      sizeBytes: design.originalSizeBytes,
+      width: design.originalWidth,
+      height: design.originalHeight,
+    },
+    print: {
+      widthPx: design.printWidthPx,
+      heightPx: design.printHeightPx,
+      dpi: design.printDpi,
+      safeMarginPx: design.printSafeMarginPx,
+      outputFormat: design.printOutputFormat,
+      mimeType: design.printFileMimeType,
+      sizeBytes: design.printFileSizeBytes,
+    },
+    files: {
+      original: `${base}/original`,
+      print: `${base}/print-file`,
+      preview: `${base}/preview`,
+    },
+    designCreatedAt: design.designCreatedAt,
+  };
+}
+
+/** Admin order: raw order columns/relations, with each item's customDesign replaced by the safe view. */
+export function toAdminOrderView(order: OrderWithItems) {
+  return {
+    ...order,
+    items: order.items.map((item) => ({ ...item, customDesign: toAdminCustomDesignView(item) })),
   };
 }

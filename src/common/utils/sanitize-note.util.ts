@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 
 export const CART_ITEM_NOTE_MAX_LENGTH = 500;
+export const ORDER_NOTE_MAX_LENGTH = 1000;
 
 // Strips ASCII/Latin-1 control characters (kept: \t and \n, so a note can
 // still span lines) from guest-supplied free text before it is persisted
@@ -16,12 +17,28 @@ const CONTROL_CHAR_PATTERN = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g;
  * the existing note alone" from "clear it".
  */
 export function sanitizeCartItemNote(raw: string | null | undefined): string | null | undefined {
+  return sanitizeNote(raw, CART_ITEM_NOTE_MAX_LENGTH, 'note');
+}
+
+/**
+ * Same normalization as sanitizeCartItemNote, for the order-level
+ * customer note supplied once at checkout (e.g. "call before delivery").
+ */
+export function sanitizeOrderNote(raw: string | null | undefined): string | null | undefined {
+  return sanitizeNote(raw, ORDER_NOTE_MAX_LENGTH, 'customerNote');
+}
+
+function sanitizeNote(
+  raw: string | null | undefined,
+  maxLength: number,
+  fieldName: string,
+): string | null | undefined {
   if (raw === undefined) return undefined;
   if (raw === null) return null;
   const cleaned = raw.replace(CONTROL_CHAR_PATTERN, '').trim();
   if (cleaned.length === 0) return null;
-  if (cleaned.length > CART_ITEM_NOTE_MAX_LENGTH) {
-    throw new BadRequestException(`note must not exceed ${CART_ITEM_NOTE_MAX_LENGTH} characters`);
+  if (cleaned.length > maxLength) {
+    throw new BadRequestException(`${fieldName} must not exceed ${maxLength} characters`);
   }
   return cleaned;
 }

@@ -80,6 +80,16 @@ export class PublicProductQueryDto extends PaginationQueryDto {
   availableOnly?: boolean;
 
   @ApiPropertyOptional({
+    description:
+      'When true, only return products that have at least one active personalizable variant ' +
+      '(and, for each product, only those variants) - used by the /customize page.',
+  })
+  @IsOptional()
+  @Transform(parseBooleanQueryParam)
+  @IsBoolean()
+  personalizable?: boolean;
+
+  @ApiPropertyOptional({
     description: 'Free-text search across English/Arabic name and description',
   })
   @IsOptional()

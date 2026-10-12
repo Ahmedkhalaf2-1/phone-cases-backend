@@ -21,6 +21,7 @@ import { AdminOrderQueryDto } from './dto/admin-order-query.dto';
 import { FlagLatePaymentDto } from './dto/flag-late-payment.dto';
 import { UpdateFulfillmentStatusDto } from './dto/update-fulfillment-status.dto';
 import { UpdatePaymentStatusDto } from './dto/update-payment-status.dto';
+import { toAdminOrderView } from './order-response.mapper';
 import { OrdersService } from './orders.service';
 
 @ApiTags('admin/orders')
@@ -35,14 +36,15 @@ export class OrdersAdminController {
 
   @Get()
   @Roles(StaffRole.OWNER_ADMIN, StaffRole.ORDER_OPERATOR)
-  findAll(@Query() query: AdminOrderQueryDto) {
-    return this.ordersService.findAllForAdmin(query);
+  async findAll(@Query() query: AdminOrderQueryDto) {
+    const page = await this.ordersService.findAllForAdmin(query);
+    return { ...page, items: page.items.map((order) => toAdminOrderView(order)) };
   }
 
   @Get(':id')
   @Roles(StaffRole.OWNER_ADMIN, StaffRole.ORDER_OPERATOR)
-  findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.ordersService.findByIdForAdmin(id);
+  async findOne(@Param('id', ParseUUIDPipe) id: string) {
+    return toAdminOrderView(await this.ordersService.findByIdForAdmin(id));
   }
 
   @Patch(':id/fulfillment-status')

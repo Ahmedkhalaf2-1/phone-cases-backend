@@ -24,6 +24,7 @@ import { AttachCollectionDto } from './dto/attach-collection.dto';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { UpdateProductStatusDto } from './dto/update-product-status.dto';
+import { toAdminProduct } from './product-response.mapper';
 import { ProductsService } from './products.service';
 
 @ApiTags('admin/products')
@@ -40,13 +41,14 @@ export class ProductsAdminController {
   }
 
   @Get()
-  findAll(@Query() query: AdminProductQueryDto) {
-    return this.productsService.findAllForAdmin(query);
+  async findAll(@Query() query: AdminProductQueryDto) {
+    const page = await this.productsService.findAllForAdmin(query);
+    return { ...page, items: page.items.map((product) => toAdminProduct(product)) };
   }
 
   @Get(':id')
-  findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.productsService.findByIdForAdmin(id);
+  async findOne(@Param('id', ParseUUIDPipe) id: string) {
+    return toAdminProduct(await this.productsService.findByIdForAdmin(id));
   }
 
   @Patch(':id')

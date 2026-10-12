@@ -1,5 +1,10 @@
 import { BadRequestException } from '@nestjs/common';
-import { CART_ITEM_NOTE_MAX_LENGTH, sanitizeCartItemNote } from './sanitize-note.util';
+import {
+  CART_ITEM_NOTE_MAX_LENGTH,
+  ORDER_NOTE_MAX_LENGTH,
+  sanitizeCartItemNote,
+  sanitizeOrderNote,
+} from './sanitize-note.util';
 
 describe('sanitizeCartItemNote', () => {
   it('passes undefined through unchanged (field omitted)', () => {
@@ -36,5 +41,22 @@ describe('sanitizeCartItemNote', () => {
   it('allows whitespace padding that only exceeds the limit before trimming', () => {
     const padded = `  ${'a'.repeat(CART_ITEM_NOTE_MAX_LENGTH)}  `;
     expect(sanitizeCartItemNote(padded)).toBe('a'.repeat(CART_ITEM_NOTE_MAX_LENGTH));
+  });
+});
+
+describe('sanitizeOrderNote', () => {
+  it('trims, strips control characters and treats blank as null', () => {
+    expect(sanitizeOrderNote('  call before delivery\x00 ')).toBe('call before delivery');
+    expect(sanitizeOrderNote('   ')).toBeNull();
+    expect(sanitizeOrderNote(undefined)).toBeUndefined();
+  });
+
+  it('allows up to ORDER_NOTE_MAX_LENGTH characters and rejects more', () => {
+    expect(sanitizeOrderNote('a'.repeat(ORDER_NOTE_MAX_LENGTH))).toHaveLength(
+      ORDER_NOTE_MAX_LENGTH,
+    );
+    expect(() => sanitizeOrderNote('a'.repeat(ORDER_NOTE_MAX_LENGTH + 1))).toThrow(
+      /customerNote must not exceed/,
+    );
   });
 });

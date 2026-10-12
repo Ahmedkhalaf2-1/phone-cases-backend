@@ -142,12 +142,14 @@ describe('Custom designs (e2e)', () => {
       await uploadDesign(token, variant.id, Buffer.from('corrupt'), 'design.jpg').expect(400);
     });
 
-    it('rejects an image below the required print resolution, with the requirement in the error', async () => {
+    it('accepts an image below the print resolution and upscales it to the exact print size', async () => {
       const token = await createCart();
       const { variant } = await seedPersonalizableVariant({ printSpec: SMALL_SPEC });
       const buffer = await image(199, 400);
-      const res = await uploadDesign(token, variant.id, buffer).expect(400);
-      expect(res.body.message).toContain('200x400');
+      const res = await uploadDesign(token, variant.id, buffer).expect(201);
+      expect(res.body.original.width).toBe(199);
+      expect(res.body.print.widthPx).toBe(200);
+      expect(res.body.print.heightPx).toBe(400);
     });
 
     it('accepts a valid image at exactly the required resolution and renders center-crop+cover automatically', async () => {

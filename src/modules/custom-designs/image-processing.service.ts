@@ -65,38 +65,18 @@ export class ImageProcessingService {
   }
 
   /**
-   * The minimum source resolution required to render `spec` without ever
-   * upscaling: center-crop+cover only ever DOWNSCALES when the source is at
-   * least as large as the target on both axes (sharp's `fit: 'cover'`
-   * always scales by `max(targetW/srcW, targetH/srcH)`, so that factor is
-   * <= 1, i.e. never an upscale, exactly when srcW >= targetW AND
-   * srcH >= targetH). Anything smaller is rejected outright rather than
-   * silently producing a blurry "high-quality" print file - see product
-   * requirement.
-   */
-  assertMeetsMinimumResolution(image: { width: number; height: number }, spec: PrintSpec): void {
-    if (image.width < spec.widthPx || image.height < spec.heightPx) {
-      throw new BadRequestException(
-        `Image resolution ${image.width}x${image.height} is too low for this variant's print size. ` +
-          `A minimum of ${spec.widthPx}x${spec.heightPx} pixels is required so the print file is never ` +
-          `upscaled - please upload a higher-resolution image.`,
-      );
-    }
-  }
-
-  /**
    * Renders the print-ready file: automatic center-crop+cover to exactly
    * `spec.widthPx x spec.heightPx`, no manual crop/move/zoom controls, no
-   * browser dependency (pure server-side raster with sharp). Never
-   * upscales - callers must have already called
-   * assertMeetsMinimumResolution first.
+   * browser dependency (pure server-side raster with sharp). Any source
+   * resolution is accepted: a source smaller than the canvas is scaled UP
+   * to fill it, so the output is always exactly widthPx x heightPx (it may
+   * look soft - the storefront can warn using the stored original size).
    */
   async renderPrintFile(sourceBuffer: Buffer, spec: PrintSpec): Promise<Buffer> {
     let pipeline = sharp(sourceBuffer)
       .resize(spec.widthPx, spec.heightPx, {
         fit: 'cover',
         position: 'centre',
-        withoutEnlargement: true,
       })
       .flatten({ background: { r: 255, g: 255, b: 255 } });
 

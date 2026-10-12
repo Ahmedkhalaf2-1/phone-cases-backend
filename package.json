@@ -25,6 +25,7 @@
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
     "seed": "ts-node -r tsconfig-paths/register prisma/seed.ts",
+    "seed:custom-case": "ts-node -r tsconfig-paths/register scripts/seed-custom-case.ts",
     "import:catalog": "ts-node -r tsconfig-paths/register scripts/catalog-import/run.ts"
   },
   "dependencies": {

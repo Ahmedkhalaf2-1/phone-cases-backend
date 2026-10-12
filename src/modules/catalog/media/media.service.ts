@@ -6,6 +6,8 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { AuditLogService } from '../../audit-log/audit-log.service';
 import type { AuthenticatedStaff } from '../../auth/types/authenticated-staff.type';
 import { AttachMediaDto } from './dto/attach-media.dto';
+import { ReorderProductMediaDto } from './dto/reorder-media.dto';
+import { UpdateProductMediaDto } from './dto/update-product-media.dto';
 import { UploadMediaDto } from './dto/upload-media.dto';
 import { MEDIA_STORAGE, MediaStorageDriver } from './storage/media-storage.interface';
 
@@ -140,6 +142,88 @@ export class MediaService {
       entityType: 'Product',
       entityId: productId,
       metadata: { mediaAssetId },
+    });
+  }
+
+  /**
+   * Sets displayOrder = array index for the given ids and makes the first
+   * one primary, in a single transaction. The ids must be exactly the set
+   * currently attached to the product - a partial list would leave the
+   * remaining entries with colliding/ambiguous positions.
+   */
+  async reorderProductMedia(
+    productId: string,
+    dto: ReorderProductMediaDto,
+    actor: AuthenticatedStaff,
+  ): Promise<void> {
+    await this.assertProductExists(productId);
+    await this.prisma.$transaction(async (tx) => {
+      const current = await tx.productMedia.findMany({
+        where: { productId },
+        select: { mediaAssetId: true },
+      });
+      const currentIds = new Set(current.map((entry) => entry.mediaAssetId));
+      const matches =
+        currentIds.size === dto.mediaAssetIds.length &&
+        dto.mediaAssetIds.every((id) => currentIds.has(id));
+      if (!matches) {
+        throw new BadRequestException(
+          'mediaAssetIds must list exactly the media assets currently attached to this product',
+        );
+      }
+      for (let index = 0; index < dto.mediaAssetIds.length; index += 1) {
+        await tx.productMedia.update({
+          where: {
+            productId_mediaAssetId: { productId, mediaAssetId: dto.mediaAssetIds[index] },
+          },
+          data: { displayOrder: index, isPrimary: index === 0 },
+        });
+      }
+    });
+
+    await this.auditLogService.record({
+      staffUserId: actor.id,
+      action: 'product.media.reorder',
+      entityType: 'Product',
+      entityId: productId,
+      metadata: { mediaAssetIds: dto.mediaAssetIds },
+    });
+  }
+
+  async updateProductMedia(
+    productId: string,
+    mediaAssetId: string,
+    dto: UpdateProductMediaDto,
+    actor: AuthenticatedStaff,
+  ): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.productMedia.findUnique({
+        where: { productId_mediaAssetId: { productId, mediaAssetId } },
+      });
+      if (!existing) {
+        throw new ResourceNotFoundException('ProductMedia', mediaAssetId);
+      }
+      if (dto.isPrimary) {
+        await tx.productMedia.updateMany({
+          where: { productId, NOT: { mediaAssetId } },
+          data: { isPrimary: false },
+        });
+      }
+      await tx.productMedia.update({
+        where: { productId_mediaAssetId: { productId, mediaAssetId } },
+        data: {
+          ...(dto.isPrimary ? { isPrimary: true } : {}),
+          ...(dto.displayOrder !== undefined ? { displayOrder: dto.displayOrder } : {}),
+        },
+      });
+    });
+
+    await this.auditLogService.record({
+      staffUserId: actor.id,
+      action: 'product.media.update',
+      entityType: 'Product',
+      entityId: productId,
+      metadata: { mediaAssetId, ...dto },
     });
   }
 

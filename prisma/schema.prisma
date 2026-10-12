@@ -163,11 +163,16 @@ model Collection {
   displayOrder Int     @default(0)
   isActive     Boolean @default(true)
 
+  // Optional cover image shown on storefront collection cards/headers.
+  coverMediaAssetId String?
+  coverMediaAsset   MediaAsset? @relation("CollectionCover", fields: [coverMediaAssetId], references: [id], onDelete: SetNull)
+
   products ProductCollection[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@index([coverMediaAssetId])
   @@map("collections")
 }
 
@@ -565,6 +570,7 @@ model MediaAsset {
   productMedia     ProductMedia[]
   variantMedia     VariantMedia[]
   homepageSections HomepageSection[]
+  collectionCovers Collection[]      @relation("CollectionCover")
 
   createdAt DateTime @default(now())
 
@@ -583,6 +589,7 @@ model ProductMedia {
 
   @@unique([productId, mediaAssetId])
   @@index([mediaAssetId])
+  @@index([productId, displayOrder])
   @@map("product_media")
 }
 
@@ -963,6 +970,11 @@ model Order {
   shippingAddressLine1 String
   shippingAddressLine2 String?
   shippingPostalCode   String?
+
+  // Free-text note for the whole order from the customer at checkout
+  // (e.g. "call before delivery"), sanitized by sanitizeOrderNote. Per-line
+  // instructions live on OrderItem.note instead. null means no note.
+  customerNote String?
 
   items           OrderItem[]
   reservations    StockReservation[]

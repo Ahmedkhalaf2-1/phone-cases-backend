@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Collection, Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import {
   DuplicateResourceException,
   ResourceNotFoundException,
@@ -10,6 +10,12 @@ import type { AuthenticatedStaff } from '../../auth/types/authenticated-staff.ty
 import { CreateCollectionDto } from './dto/create-collection.dto';
 import { UpdateCollectionDto } from './dto/update-collection.dto';
 
+const COLLECTION_INCLUDE = { coverMediaAsset: true } satisfies Prisma.CollectionInclude;
+
+export type CollectionWithCover = Prisma.CollectionGetPayload<{
+  include: typeof COLLECTION_INCLUDE;
+}>;
+
 @Injectable()
 export class CollectionsService {
   constructor(
@@ -17,9 +23,12 @@ export class CollectionsService {
     private readonly auditLogService: AuditLogService,
   ) {}
 
-  async create(dto: CreateCollectionDto, actor: AuthenticatedStaff): Promise<Collection> {
+  async create(dto: CreateCollectionDto, actor: AuthenticatedStaff): Promise<CollectionWithCover> {
     try {
-      const collection = await this.prisma.collection.create({ data: dto });
+      const collection = await this.prisma.collection.create({
+        data: dto,
+        include: COLLECTION_INCLUDE,
+      });
       await this.auditLogService.record({
         staffUserId: actor.id,
         action: 'collection.create',
@@ -34,29 +43,37 @@ export class CollectionsService {
     }
   }
 
-  async findAllForAdmin(): Promise<Collection[]> {
+  async findAllForAdmin(): Promise<CollectionWithCover[]> {
     return this.prisma.collection.findMany({
+      include: COLLECTION_INCLUDE,
       orderBy: [{ displayOrder: 'asc' }, { nameEn: 'asc' }],
     });
   }
 
-  async findAllActive(): Promise<Collection[]> {
+  async findAllActive(): Promise<CollectionWithCover[]> {
     return this.prisma.collection.findMany({
       where: { isActive: true },
+      include: COLLECTION_INCLUDE,
       orderBy: [{ displayOrder: 'asc' }, { nameEn: 'asc' }],
     });
   }
 
-  async findByIdOrThrow(id: string): Promise<Collection> {
-    const collection = await this.prisma.collection.findUnique({ where: { id } });
+  async findByIdOrThrow(id: string): Promise<CollectionWithCover> {
+    const collection = await this.prisma.collection.findUnique({
+      where: { id },
+      include: COLLECTION_INCLUDE,
+    });
     if (!collection) {
       throw new ResourceNotFoundException('Collection', id);
     }
     return collection;
   }
 
-  async findBySlugOrThrow(slug: string): Promise<Collection> {
-    const collection = await this.prisma.collection.findUnique({ where: { slug } });
+  async findBySlugOrThrow(slug: string): Promise<CollectionWithCover> {
+    const collection = await this.prisma.collection.findUnique({
+      where: { slug },
+      include: COLLECTION_INCLUDE,
+    });
     if (!collection || !collection.isActive) {
       throw new ResourceNotFoundException('Collection', slug);
     }
@@ -67,10 +84,14 @@ export class CollectionsService {
     id: string,
     dto: UpdateCollectionDto,
     actor: AuthenticatedStaff,
-  ): Promise<Collection> {
+  ): Promise<CollectionWithCover> {
     await this.findByIdOrThrow(id);
     try {
-      const collection = await this.prisma.collection.update({ where: { id }, data: dto });
+      const collection = await this.prisma.collection.update({
+        where: { id },
+        data: dto,
+        include: COLLECTION_INCLUDE,
+      });
       await this.auditLogService.record({
         staffUserId: actor.id,
         action: 'collection.update',
@@ -86,6 +107,9 @@ export class CollectionsService {
   }
 
   private rethrowIfDuplicateSlug(error: unknown, slug: string | undefined): void {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
+      throw new ResourceNotFoundException('MediaAsset', 'coverMediaAssetId');
+    }
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002' && slug) {
       throw new DuplicateResourceException(
         'COLLECTION_SLUG_TAKEN',

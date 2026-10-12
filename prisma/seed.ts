@@ -15,8 +15,8 @@ const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
 const prisma = new PrismaClient({ adapter });
 
 async function main(): Promise<void> {
-  const ownerEmail = (process.env.SEED_OWNER_ADMIN_EMAIL ?? 'owner@example.com').toLowerCase();
-  const ownerPassword = process.env.SEED_OWNER_ADMIN_PASSWORD ?? 'change-me-now-12345';
+  const ownerEmail = (process.env.SEED_OWNER_ADMIN_EMAIL ?? 'adminr@gmail.com').toLowerCase();
+  const ownerPassword = process.env.SEED_OWNER_ADMIN_PASSWORD ?? 'Ahmed098';
 
   const existingStaffCount = await prisma.staffUser.count();
   if (existingStaffCount === 0) {
@@ -148,7 +148,12 @@ async function main(): Promise<void> {
     price: number;
     compareAtPrice?: number;
   }> = [
-    { sku: 'SPACE-IP15-SHOCK', phoneModelId: iphone15.id, caseTypeId: shockResistant.id, price: 45000 },
+    {
+      sku: 'SPACE-IP15-SHOCK',
+      phoneModelId: iphone15.id,
+      caseTypeId: shockResistant.id,
+      price: 45000,
+    },
     {
       sku: 'SPACE-IP15PRO-SHOCK',
       phoneModelId: iphone15Pro.id,
@@ -157,7 +162,12 @@ async function main(): Promise<void> {
       compareAtPrice: 52000,
     },
     { sku: 'SPACE-IP15-SLIM', phoneModelId: iphone15.id, caseTypeId: slim.id, price: 35000 },
-    { sku: 'SPACE-S24-SHOCK', phoneModelId: galaxyS24.id, caseTypeId: shockResistant.id, price: 45000 },
+    {
+      sku: 'SPACE-S24-SHOCK',
+      phoneModelId: galaxyS24.id,
+      caseTypeId: shockResistant.id,
+      price: 45000,
+    },
   ];
 
   for (const seedVariant of variantSeeds) {
@@ -188,7 +198,13 @@ async function main(): Promise<void> {
   await prisma.productVariant.upsert({
     where: { sku: 'NEBULA-IP15-SLIM' },
     update: {},
-    create: { sku: 'NEBULA-IP15-SLIM', productId: draftProduct.id, phoneModelId: iphone15.id, caseTypeId: slim.id, price: 35000 },
+    create: {
+      sku: 'NEBULA-IP15-SLIM',
+      productId: draftProduct.id,
+      phoneModelId: iphone15.id,
+      caseTypeId: slim.id,
+      price: 35000,
+    },
   });
 
   // --- Shipping (demo data only - see docs/DECISIONS.md. These are NOT
@@ -259,7 +275,8 @@ async function main(): Promise<void> {
       slug: 'shipping-policy',
       titleEn: 'Shipping Policy (demo placeholder)',
       titleAr: 'سياسة الشحن (نموذج تجريبي)',
-      bodyEn: '[DEMO CONTENT - not a real policy] Replace this text with the actual shipping policy before publishing.',
+      bodyEn:
+        '[DEMO CONTENT - not a real policy] Replace this text with the actual shipping policy before publishing.',
       bodyAr: '[محتوى تجريبي - ليس سياسة فعلية] استبدل هذا النص بسياسة الشحن الفعلية قبل النشر.',
       status: PageStatus.DRAFT,
     },

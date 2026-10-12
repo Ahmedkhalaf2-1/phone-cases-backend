@@ -75,7 +75,6 @@ export class CustomDesignsService {
     const decoded = await this.imageProcessingService.decodeAndValidate(file, maxSize);
 
     const spec = resolvePrintSpec(variant.printSpecification);
-    this.imageProcessingService.assertMeetsMinimumResolution(decoded, spec);
 
     const printBuffer = await this.imageProcessingService.renderPrintFile(decoded.buffer, spec);
     const previewBuffer = await this.mockupService.composePreview(printBuffer);

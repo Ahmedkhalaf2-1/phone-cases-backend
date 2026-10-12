@@ -1,5 +1,5 @@
 import { DEFAULT_LOCALE, Locale, pickLocalized } from '../../../common/i18n/localized-field';
-import type { AdminProductWithRelations } from './products.service';
+import type { AdminListProduct, AdminProductWithRelations } from './products.service';
 
 function isVariantAvailable(variant: AdminProductWithRelations['variants'][number]): boolean {
   if (!variant.isActive) return false;
@@ -134,5 +134,26 @@ export function toPublicProductDetail(product: AdminProductWithRelations, locale
     ...toPublicProductSummary(product, locale),
     media: toPublicMedia(product.media),
     variants: product.variants.map((variant) => toPublicVariant(variant, product, locale)),
+  };
+}
+
+/**
+ * Admin product view: the raw product row (all columns, incl. internal
+ * fields) with `collections` flattened to plain
+ * `{ id, slug, nameEn, nameAr }` entries instead of join rows. Variants
+ * and media are passed through untouched, so every variant keeps
+ * isPersonalizable/customizationPrice and `media` stays sorted by
+ * displayOrder with `mediaAsset.url` on each entry.
+ */
+export function toAdminProduct<T extends AdminProductWithRelations | AdminListProduct>(product: T) {
+  const { collections, ...rest } = product;
+  return {
+    ...rest,
+    collections: collections.map(({ collection }) => ({
+      id: collection.id,
+      slug: collection.slug,
+      nameEn: collection.nameEn,
+      nameAr: collection.nameAr,
+    })),
   };
 }

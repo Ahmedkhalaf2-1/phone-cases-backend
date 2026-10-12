@@ -6,7 +6,7 @@ import { Observable, map } from 'rxjs';
 // (`${APP_URL}/uploads/<key>`) at upload time - see LocalMediaStorageService.
 // If APP_URL changes later (e.g. the dev machine's LAN IP changes), every
 // previously-uploaded row still has the old host baked in. Rather than
-// trusting the stored host, rewrite it to the *current* APP_URL on every
+// trusting the stored host, rewrite it to the *current* PUBLIC_BASE_URL (falling back to APP_URL) on every
 // response, matched narrowly on the "/uploads/" path so S3-driver URLs
 // (which never contain that segment) pass through untouched.
 const UPLOADS_URL_PATTERN = /^https?:\/\/[^/]+(\/uploads\/.+)$/;
@@ -16,10 +16,15 @@ const MAX_DEPTH = 8;
 export class MediaUrlRewriteInterceptor implements NestInterceptor {
   constructor(private readonly configService: ConfigService) {}
 
+  private baseUrl(): string {
+    const configured =
+      this.configService.get<string>('PUBLIC_BASE_URL') ||
+      this.configService.getOrThrow<string>('APP_URL');
+    return configured.replace(/\/+$/, '');
+  }
+
   intercept(_context: ExecutionContext, next: CallHandler): Observable<unknown> {
-    return next
-      .handle()
-      .pipe(map((data) => rewrite(data, this.configService.getOrThrow<string>('APP_URL'), 0)));
+    return next.handle().pipe(map((data) => rewrite(data, this.baseUrl(), 0)));
   }
 }
 

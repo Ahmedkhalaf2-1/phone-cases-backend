@@ -229,6 +229,65 @@ describe('Orders (e2e)', () => {
       expect(admin.body.items[0].note).toBe('please put the case in a black box');
     });
 
+    it('stores an order-level customer note and shows it in the guest and admin views', async () => {
+      const rate = await seedEgyptShipping(5000);
+      const { variant } = await seedPublishedVariant(10000);
+      const token = await createCartWithItem(variant.id);
+      const total = await quoteTotal(token, rate.id);
+
+      const created = await request(app.getHttpServer())
+        .post('/api/v1/orders')
+        .set('X-Cart-Token', token)
+        .send(
+          orderBody({
+            shippingRateId: rate.id,
+            expectedTotal: total,
+            customerNote: '  call me before delivery  ',
+          }),
+        )
+        .expect(201);
+      expect(created.body.customerNote).toBe('call me before delivery');
+
+      const tracked = await request(app.getHttpServer())
+        .get(`/api/v1/orders/track/${created.body.trackingToken}`)
+        .expect(200);
+      expect(tracked.body.customerNote).toBe('call me before delivery');
+
+      const owner = await createStaffAndLogin(app, StaffRole.OWNER_ADMIN);
+      const order = await prisma.order.findFirstOrThrow();
+      const admin = await request(app.getHttpServer())
+        .get(`/api/v1/admin/orders/${order.id}`)
+        .set('Authorization', `Bearer ${owner.accessToken}`)
+        .expect(200);
+      expect(admin.body.customerNote).toBe('call me before delivery');
+    });
+
+    it('stores a blank customer note as null and rejects an over-long one', async () => {
+      const rate = await seedEgyptShipping(5000);
+      const { variant } = await seedPublishedVariant(10000);
+      const token = await createCartWithItem(variant.id);
+      const total = await quoteTotal(token, rate.id);
+
+      await request(app.getHttpServer())
+        .post('/api/v1/orders')
+        .set('X-Cart-Token', token)
+        .send(
+          orderBody({
+            shippingRateId: rate.id,
+            expectedTotal: total,
+            customerNote: 'a'.repeat(1001),
+          }),
+        )
+        .expect(400);
+
+      const created = await request(app.getHttpServer())
+        .post('/api/v1/orders')
+        .set('X-Cart-Token', token)
+        .send(orderBody({ shippingRateId: rate.id, expectedTotal: total, customerNote: '   ' }))
+        .expect(201);
+      expect(created.body.customerNote).toBeNull();
+    });
+
     it('normalizes Arabic-Indic digits in the phone number', async () => {
       const rate = await seedEgyptShipping();
       const { variant } = await seedPublishedVariant(10000);
