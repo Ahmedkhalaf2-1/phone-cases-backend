@@ -13,6 +13,14 @@ import { MEDIA_STORAGE, MediaStorageDriver } from './storage/media-storage.inter
 
 const ALLOWED_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
 
+// Already-WebP and (possibly animated) GIF uploads are stored as-is: no
+// lossy re-encode, no derivative.
+const PASSTHROUGH_MIME_TYPES = new Set(['image/webp', 'image/gif']);
+const DERIVATIVE_MIME_TYPE = 'image/webp';
+const DERIVATIVE_QUALITY = 88;
+const UNDECODABLE_MESSAGE =
+  'The uploaded file could not be decoded as a valid image - it may be corrupt or mislabeled';
+
 @Injectable()
 export class MediaService {
   constructor(
@@ -32,40 +40,82 @@ export class MediaService {
       );
     }
 
+    let stored: { storageKey: string; url: string; originalStorageKey?: string };
+    let mimeType: string;
+    let fileSizeBytes: number;
     let width: number | undefined;
     let height: number | undefined;
-    try {
-      const metadata = await sharp(file.buffer).metadata();
-      width = metadata.width;
-      height = metadata.height;
-    } catch {
-      throw new BadRequestException(
-        'The uploaded file could not be decoded as a valid image - it may be corrupt or mislabeled',
+
+    if (PASSTHROUGH_MIME_TYPES.has(file.mimetype)) {
+      try {
+        const metadata = await sharp(file.buffer).metadata();
+        width = metadata.width;
+        height = metadata.height;
+      } catch {
+        throw new BadRequestException(UNDECODABLE_MESSAGE);
+      }
+      stored = await this.storage.save(file.buffer, file.originalname, file.mimetype);
+      mimeType = file.mimetype;
+      fileSizeBytes = file.size;
+    } else {
+      // Encode before writing anything so an undecodable file leaves no
+      // files behind. rotate() applies EXIF orientation to the pixels (the
+      // WebP carries no EXIF), so the image looks the same; no resize/crop.
+      let derivative: Buffer;
+      try {
+        const encoded = await sharp(file.buffer)
+          .rotate()
+          .webp({ quality: DERIVATIVE_QUALITY })
+          .toBuffer({ resolveWithObject: true });
+        derivative = encoded.data;
+        width = encoded.info.width;
+        height = encoded.info.height;
+      } catch {
+        throw new BadRequestException(UNDECODABLE_MESSAGE);
+      }
+      stored = await this.storage.saveWithOriginal(
+        { buffer: file.buffer, mimeType: file.mimetype },
+        { buffer: derivative, mimeType: DERIVATIVE_MIME_TYPE },
       );
+      mimeType = DERIVATIVE_MIME_TYPE;
+      fileSizeBytes = derivative.length;
     }
 
-    const saved = await this.storage.save(file.buffer, file.originalname, file.mimetype);
-
-    const mediaAsset = await this.prisma.mediaAsset.create({
-      data: {
-        storageKey: saved.storageKey,
-        url: saved.url,
-        mimeType: file.mimetype,
-        fileSizeBytes: file.size,
-        width,
-        height,
-        altTextEn: dto.altTextEn,
-        altTextAr: dto.altTextAr,
-        uploadedByStaffId: actor.id,
-      },
-    });
+    let mediaAsset: MediaAsset;
+    try {
+      mediaAsset = await this.prisma.mediaAsset.create({
+        data: {
+          storageKey: stored.storageKey,
+          url: stored.url,
+          mimeType,
+          fileSizeBytes,
+          width,
+          height,
+          altTextEn: dto.altTextEn,
+          altTextAr: dto.altTextAr,
+          uploadedByStaffId: actor.id,
+        },
+      });
+    } catch (error) {
+      // Do not leave orphaned files behind a failed insert.
+      await this.storage.delete(stored.storageKey);
+      if (stored.originalStorageKey) {
+        await this.storage.delete(stored.originalStorageKey);
+      }
+      throw error;
+    }
 
     await this.auditLogService.record({
       staffUserId: actor.id,
       action: 'media.upload',
       entityType: 'MediaAsset',
       entityId: mediaAsset.id,
-      metadata: { mimeType: file.mimetype, fileSizeBytes: file.size },
+      metadata: {
+        mimeType,
+        fileSizeBytes,
+        originalMimeType: file.mimetype,
+        originalFileSizeBytes: file.size,
+      },
     });
 
     return mediaAsset;

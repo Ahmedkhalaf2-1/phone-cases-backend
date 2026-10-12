@@ -1,5 +1,9 @@
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
-import type { MediaStorageDriver, SavedFile } from './media-storage.interface';
+import type {
+  MediaStorageDriver,
+  SavedFile,
+  SavedFileWithOriginal,
+} from './media-storage.interface';
 
 /**
  * Placeholder for the production object-storage driver (S3-compatible).
@@ -11,6 +15,13 @@ import type { MediaStorageDriver, SavedFile } from './media-storage.interface';
 @Injectable()
 export class UnavailableMediaStorageService implements MediaStorageDriver {
   save(): Promise<SavedFile> {
+    throw new ServiceUnavailableException(
+      'MEDIA_STORAGE_DRIVER=s3 is configured but the S3 storage driver is not implemented yet ' +
+        '(planned for Phase 4). Set MEDIA_STORAGE_DRIVER=local for development.',
+    );
+  }
+
+  saveWithOriginal(): Promise<SavedFileWithOriginal> {
     throw new ServiceUnavailableException(
       'MEDIA_STORAGE_DRIVER=s3 is configured but the S3 storage driver is not implemented yet ' +
         '(planned for Phase 4). Set MEDIA_STORAGE_DRIVER=local for development.',
