@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploys the backend on the VPS: pull, install, build, migrate, (re)start with PM2.
+# Deploys the backend on the VPS: fetch+merge origin/main, install, build, migrate, (re)start with PM2.
 #
 # Order matters and is deliberate:
 #   1. build BEFORE touching the database, so a broken build never migrates;
@@ -9,12 +9,24 @@
 # Migrations are applied with `prisma migrate deploy` (never `migrate dev`):
 # it only applies already-committed migrations and never resets anything.
 #
+# Code source: ALWAYS origin/main, regardless of which local branch is checked
+# out. The server may sit on its own local branch (e.g. `vps`) that has no
+# remote counterpart; that branch is only the place origin/main gets merged
+# INTO. The script never checks out, resets, force-moves or pushes branches,
+# and never touches untracked files (e.g. a server-only reset.ts).
+#
 # Environment overrides:
 #   APP_NAME=contrast-backend   PM2 process name (default below)
+#   DEPLOY_REMOTE=origin        remote to fetch from
+#   DEPLOY_BRANCH=main          remote branch to deploy
 #   SKIP_MIGRATE=1              skip the migration step entirely
 set -Eeuo pipefail
 
 APP_NAME="${APP_NAME:-contrast-backend}"
+DEPLOY_REMOTE="${DEPLOY_REMOTE:-origin}"
+DEPLOY_BRANCH="${DEPLOY_BRANCH:-main}"
+SOURCE_REF="${DEPLOY_REMOTE}/${DEPLOY_BRANCH}"
+export GIT_MERGE_AUTOEDIT=no
 
 cd "$(dirname "$(readlink -f "$0")")"
 trap 'echo "✗ Deploy failed (line $LINENO). The running app was not restarted." >&2' ERR
@@ -32,30 +44,55 @@ if [[ ! -f .env ]]; then
   exit 1
 fi
 
+# Tracked changes (staged or not) could be overwritten by the merge: refuse.
+# Untracked files (reset.ts, uploads, ...) are deliberately ignored here.
 if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
   echo "There are uncommitted changes to tracked files on this server. Commit or discard them first:" >&2
   git status --short --untracked-files=no >&2
   exit 1
 fi
 
-PREVIOUS_COMMIT="$(git rev-parse --short HEAD)"
-
-BRANCH="$(git branch --show-current)"
-if [[ -z "$BRANCH" ]]; then
-  echo "Detached HEAD: check out a branch (e.g. main) before deploying." >&2
+LOCAL_BRANCH="$(git branch --show-current)"
+if [[ -z "$LOCAL_BRANCH" ]]; then
+  echo "Detached HEAD: check out the server's branch (e.g. vps) before deploying." >&2
+  exit 1
+fi
+if [[ -f "$(git rev-parse --git-dir)/MERGE_HEAD" ]]; then
+  echo "A merge is already in progress on this server. Finish or abort it (git merge --abort) first." >&2
   exit 1
 fi
 
-step "Updating code from origin/${BRANCH}"
-git fetch origin
-echo "Latest on origin/${BRANCH}:"
-git log --oneline --decorate -3 "origin/${BRANCH}"
-# Fast-forward only: if this server has its own commits the merge is refused
-# instead of silently creating a merge commit on the production box.
-if ! git merge --ff-only "origin/${BRANCH}"; then
-  echo "Cannot fast-forward ${BRANCH} to origin/${BRANCH} (the server has local commits)." >&2
-  echo "Resolve that by hand (git log origin/${BRANCH}..HEAD) and re-run." >&2
+PREVIOUS_COMMIT="$(git rev-parse --short HEAD)"
+
+step "Updating code: ${SOURCE_REF} -> local branch '${LOCAL_BRANCH}'"
+git fetch "$DEPLOY_REMOTE"
+if ! git rev-parse --verify --quiet "refs/remotes/${SOURCE_REF}" >/dev/null; then
+  echo "${SOURCE_REF} does not exist after fetching. Check DEPLOY_REMOTE / DEPLOY_BRANCH." >&2
   exit 1
+fi
+echo "Latest on ${SOURCE_REF}:"
+git log --oneline --decorate -3 "$SOURCE_REF"
+
+LOCAL_ONLY="$(git rev-list --count "${SOURCE_REF}..HEAD")"
+if git merge-base --is-ancestor "$SOURCE_REF" HEAD; then
+  echo "'${LOCAL_BRANCH}' already contains ${SOURCE_REF}; nothing to merge."
+elif git merge-base --is-ancestor HEAD "$SOURCE_REF"; then
+  echo "Fast-forwarding '${LOCAL_BRANCH}' to ${SOURCE_REF}."
+  git merge --ff-only "$SOURCE_REF"
+else
+  # The server branch has commits of its own (${LOCAL_ONLY} not on ${SOURCE_REF}),
+  # so a fast-forward is impossible - and will stay impossible. This is the
+  # normal state for the server branch: record a regular merge commit, exactly
+  # like the manual `git merge origin/main`. It is local only; nothing is pushed.
+  echo "'${LOCAL_BRANCH}' has ${LOCAL_ONLY} commit(s) not on ${SOURCE_REF}; merging (merge commit)."
+  if ! git merge --no-edit "$SOURCE_REF"; then
+    # Conflicts, or an untracked file that the merge would overwrite. Put the
+    # tree back exactly as it was; the running app has not been touched.
+    git merge --abort 2>/dev/null || true
+    echo "Merge of ${SOURCE_REF} into '${LOCAL_BRANCH}' was refused and rolled back." >&2
+    echo "Nothing changed on this server. Resolve it by hand (git merge ${SOURCE_REF}) and re-run." >&2
+    exit 1
+  fi
 fi
 CURRENT_COMMIT="$(git rev-parse --short HEAD)"
 git log -1 --oneline
@@ -111,6 +148,7 @@ done
 echo "✗ ${APP_NAME} did not become ready. Recent logs:" >&2
 pm2 logs "$APP_NAME" --lines 40 --nostream >&2 || true
 echo >&2
-echo "To roll back the code:  git reset --hard ${PREVIOUS_COMMIT} && ./deploy-backend.sh" >&2
+echo "Previous commit was ${PREVIOUS_COMMIT}. This script never resets or force-moves branches;" >&2
+echo "if you need to go back, do it deliberately by hand, then rebuild and restart." >&2
 echo "(Applied migrations are additive and are not reverted automatically.)" >&2
 exit 1

@@ -17,10 +17,22 @@ npm run start:prod          # node dist/main.js
 ```
 
 **Scripted deploy (VPS, PM2):** `./deploy-backend.sh` runs the whole sequence below in the safe
-order - pull, `npm ci`, `prisma generate`, build, `prisma migrate status`/`deploy`, then
-`pm2 restart` of the single `contrast-backend` process (created from `ecosystem.config.js` on the first deploy) - and
-finishes with a `/api/v1/ready` health check. A failed build or migration stops the script before the
-running app is restarted. Back up PostgreSQL first when a deploy contains migrations (§7).
+order - fetch and merge `origin/main`, `npm ci`, `prisma generate`, build,
+`prisma migrate status`/`deploy`, then `pm2 restart` of the single `contrast-backend` process
+(created from `ecosystem.config.js` on the first deploy) - and finishes with a `/api/v1/ready`
+health check. A failed merge, build or migration stops the script before the running app is
+restarted. Back up PostgreSQL first when a deploy contains migrations (§7).
+
+*Code source.* The script always deploys `origin/main` (override with `DEPLOY_REMOTE` /
+`DEPLOY_BRANCH`); it never derives the remote from the checked-out local branch. The server may stay
+on its own local branch (e.g. `vps`) that has no remote counterpart - that branch is only where
+`origin/main` is merged *into*. If the local branch already contains `origin/main` nothing is
+merged; if it is strictly behind, it is fast-forwarded; if it has commits of its own (the normal
+case once it holds a merge commit) a regular local merge commit is created - the same as running
+`git merge origin/main` by hand, and a plain fast-forward-only update would never work there. A merge
+that conflicts, or that would overwrite an untracked file, is aborted and the tree is left exactly as
+it was. The script refuses to run with uncommitted changes to *tracked* files, ignores untracked
+files (e.g. a server-only `reset.ts`), and never checks out, resets, force-moves or pushes branches.
 
 `prisma:migrate:deploy` (not `prisma:migrate:dev`) is the production-safe command: it applies
 already-committed migrations without ever prompting, generating a new migration, or resetting
