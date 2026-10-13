@@ -15,10 +15,13 @@ import {
   IsString,
   IsUUID,
   Max,
+  MaxLength,
   Min,
   MinLength,
   ValidateNested,
 } from 'class-validator';
+
+import { MAX_BANNER_CTA, MAX_BANNER_TEXT } from '../bundle-banner.util';
 
 /** Upper bounds that keep admin input inside Postgres INTEGER and sane pricing loops. */
 export const MAX_BUNDLE_SIZE = 50;
@@ -136,6 +139,36 @@ export class CreateBundleDto {
   @IsOptional()
   @IsISO8601()
   expiresAt?: string | null;
+
+  @ApiPropertyOptional({
+    default: false,
+    description:
+      'Show this bundle in the storefront announcement bar. Display only; ' +
+      'it only takes effect while the bundle is active and within its schedule.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  showAnnouncementBanner?: boolean;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    maxLength: MAX_BANNER_TEXT,
+    description: 'Banner message. Empty/null uses a default like "2 CASES FOR 450 EGP".',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(MAX_BANNER_TEXT)
+  bannerText?: string | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    maxLength: MAX_BANNER_CTA,
+    description: 'Banner call-to-action label. Empty/null uses "SHOP NOW".',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(MAX_BANNER_CTA)
+  bannerCtaLabel?: string | null;
 
   @ApiPropertyOptional({ type: [BundleEligibleVariantInputDto] })
   @IsOptional()

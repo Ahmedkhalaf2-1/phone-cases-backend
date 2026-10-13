@@ -11,6 +11,13 @@ import {
   DEFAULT_BUNDLE_SIZE,
   guaranteedMinSavings,
 } from './bundle-pricing.util';
+import {
+  AnnouncementBanner,
+  cleanBannerField,
+  DEFAULT_BANNER_CTA,
+  defaultBannerText,
+  resolveBannerTarget,
+} from './bundle-banner.util';
 import { BundleVariantOptionsQueryDto } from './dto/bundle-variant-options-query.dto';
 import { CreateBundleDto } from './dto/create-bundle.dto';
 import { UpdateBundleDto } from './dto/update-bundle.dto';
@@ -92,6 +99,11 @@ export interface PublicBundleOffer {
   /** Guaranteed minimum saving of any complete group; 0 when it cannot be proven. */
   minSavings: number;
   appliesTo: { type: 'ALL' } | { type: 'SELECTED'; productSlugs: string[] };
+  /**
+   * Non-null on at most ONE offer: the single bundle chosen for the
+   * storefront announcement bar (see resolveAnnouncementBanners).
+   */
+  announcementBanner: AnnouncementBanner | null;
 }
 
 /** Display data may be this stale; it never feeds pricing. */
@@ -149,6 +161,9 @@ export class BundlesService {
         isRepeatable: dto.isRepeatable,
         allowCouponStacking: dto.allowCouponStacking,
         isEnabled: dto.isEnabled ?? false,
+        showAnnouncementBanner: dto.showAnnouncementBanner,
+        bannerText: cleanBannerField(dto.bannerText),
+        bannerCtaLabel: cleanBannerField(dto.bannerCtaLabel),
         startsAt: schedule.startsAt,
         expiresAt: schedule.expiresAt,
         eligibleVariants: {
@@ -292,6 +307,11 @@ export class BundlesService {
           isRepeatable: dto.isRepeatable,
           allowCouponStacking: dto.allowCouponStacking,
           isEnabled: dto.isEnabled,
+          showAnnouncementBanner: dto.showAnnouncementBanner,
+          // undefined leaves the stored value; blank/null clears it.
+          bannerText: dto.bannerText === undefined ? undefined : cleanBannerField(dto.bannerText),
+          bannerCtaLabel:
+            dto.bannerCtaLabel === undefined ? undefined : cleanBannerField(dto.bannerCtaLabel),
           startsAt: schedule.startsAt,
           expiresAt: schedule.expiresAt,
         },
@@ -345,6 +365,7 @@ export class BundlesService {
     if (cached && Date.now() - cached.at < DISPLAY_CACHE_TTL_MS) return cached.offers;
 
     const configs = await this.findActiveForPricing();
+    const banners = await this.resolveAnnouncementBanners(configs);
     const offers: PublicBundleOffer[] = [];
     for (const config of configs) {
       const scope = config.scope ?? BundleScope.SPECIFIC_VARIANTS;
@@ -361,10 +382,73 @@ export class BundlesService {
           scope === BundleScope.ALL_PRODUCTS
             ? { type: 'ALL' }
             : { type: 'SELECTED', productSlugs: await this.resolveProductSlugs(config) },
+        announcementBanner: banners.get(config.id) ?? null,
       });
     }
     this.publicOffersCache = { at: Date.now(), offers };
     return offers;
+  }
+
+  /**
+   * Picks the ONE bundle that may drive the storefront announcement bar.
+   *
+   * `configs` is already limited to bundles that are enabled, inside their
+   * schedule window and complete (same filter pricing uses), in the same
+   * deterministic order pricing uses: oldest `createdAt` first, then `id`.
+   * Of those, the first with showAnnouncementBanner on wins; the rest are
+   * simply not shown (banners never stack). Display only - this never
+   * touches pricing or eligibility.
+   */
+  private async resolveAnnouncementBanners(
+    configs: BundlePricingConfig[],
+  ): Promise<Map<string, AnnouncementBanner>> {
+    const result = new Map<string, AnnouncementBanner>();
+    if (configs.length === 0) return result;
+
+    const flagged = await this.prisma.bundlePromotion.findMany({
+      where: { id: { in: configs.map((c) => c.id) }, showAnnouncementBanner: true },
+      select: { id: true, bannerText: true, bannerCtaLabel: true },
+    });
+    const byId = new Map(flagged.map((row) => [row.id, row]));
+    const winner = configs.find((config) => byId.has(config.id));
+    if (!winner) return result;
+    const row = byId.get(winner.id)!;
+
+    const scope = winner.scope ?? BundleScope.SPECIFIC_VARIANTS;
+    const targetIds = [...(winner.targetIds ?? [])];
+    // Only publicly visible rows may contribute a slug to the link.
+    const collectionSlugs =
+      scope === BundleScope.COLLECTIONS
+        ? (
+            await this.prisma.collection.findMany({
+              where: { id: { in: targetIds }, isActive: true },
+              select: { slug: true },
+            })
+          ).map((c) => c.slug)
+        : [];
+    const productSlugs =
+      scope === BundleScope.PRODUCTS
+        ? (
+            await this.prisma.product.findMany({
+              where: { id: { in: targetIds }, status: ProductStatus.PUBLISHED },
+              select: { slug: true },
+            })
+          ).map((p) => p.slug)
+        : [];
+
+    result.set(winner.id, {
+      enabled: true,
+      text:
+        cleanBannerField(row.bannerText) ??
+        defaultBannerText(
+          winner.bundleSize ?? DEFAULT_BUNDLE_SIZE,
+          winner.fixedTotal,
+          winner.currency,
+        ),
+      ctaLabel: cleanBannerField(row.bannerCtaLabel) ?? DEFAULT_BANNER_CTA,
+      target: resolveBannerTarget(scope, collectionSlugs, productSlugs),
+    });
+    return result;
   }
 
   /** Variants a customer could actually buy that match this bundle's scope. */

@@ -1266,6 +1266,14 @@ model BundlePromotion {
   startsAt  DateTime?
   expiresAt DateTime?
 
+  // Optional storefront announcement banner. Display-only: never read by
+  // pricing or eligibility. Off by default, so existing bundles never
+  // show a banner. Text/CTA are only used while the flag is on; empty text
+  // falls back to a default generated from the bundle values.
+  showAnnouncementBanner Boolean @default(false)
+  bannerText             String?
+  bannerCtaLabel         String?
+
   eligibleVariants BundleEligibleVariant[]
   scopeTargets     BundleScopeTarget[]
   instances        BundleInstance[]
