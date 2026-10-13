@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import {
   ArrayMinSize,
   IsArray,
@@ -7,16 +8,23 @@ import {
   IsOptional,
   IsString,
   Matches,
+  Max,
+  Min,
   MinLength,
 } from 'class-validator';
 
+const MAX_DISPLAY_ORDER = 1_000_000;
+const trim = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value);
+
 export class CreateShippingZoneDto {
   @ApiProperty({ example: 'Egypt' })
+  @Transform(trim)
   @IsString()
   @MinLength(1)
   nameEn!: string;
 
   @ApiProperty({ example: 'مصر' })
+  @Transform(trim)
   @IsString()
   @MinLength(1)
   nameAr!: string;
@@ -39,6 +47,8 @@ export class CreateShippingZoneDto {
   @ApiPropertyOptional({ default: 0 })
   @IsOptional()
   @IsInt()
+  @Min(-MAX_DISPLAY_ORDER)
+  @Max(MAX_DISPLAY_ORDER)
   displayOrder?: number;
 
   @ApiPropertyOptional({ default: true })

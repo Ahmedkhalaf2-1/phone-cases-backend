@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { BadRequestException, HttpStatus, Injectable } from '@nestjs/common';
 import { Prisma, ShippingRate, ShippingZone } from '@prisma/client';
 import { AppException, ResourceNotFoundException } from '../../common/exceptions/app.exception';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -29,6 +29,27 @@ export function computeShippingPrice(
   return rate.price;
 }
 
+/** Fields backed by NOT NULL columns: PATCH may omit them, but never null them. */
+function assertNoNullRequired(dto: object, fields: string[]): void {
+  const record = dto as Record<string, unknown>;
+  for (const field of fields) {
+    if (record[field] === null) {
+      throw new BadRequestException(`${field} must not be null`);
+    }
+  }
+}
+
+/** The delivery estimate is a range: the maximum can never be below the minimum. */
+function assertDeliveryRange(min: number | null | undefined, max: number | null | undefined): void {
+  if (min !== null && min !== undefined && max !== null && max !== undefined && max < min) {
+    throw new BadRequestException('estimatedDaysMax must not be less than estimatedDaysMin');
+  }
+}
+
+const uniqueCountries = (countries: string[]) => [
+  ...new Set(countries.map((c) => c.toUpperCase())),
+];
+
 @Injectable()
 export class ShippingService {
   constructor(
@@ -40,7 +61,7 @@ export class ShippingService {
 
   async createZone(dto: CreateShippingZoneDto, actor: AuthenticatedStaff): Promise<ShippingZone> {
     const zone = await this.prisma.shippingZone.create({
-      data: { ...dto, countries: dto.countries.map((c) => c.toUpperCase()) },
+      data: { ...dto, countries: uniqueCountries(dto.countries) },
     });
     await this.auditLogService.record({
       staffUserId: actor.id,
@@ -76,9 +97,10 @@ export class ShippingService {
     actor: AuthenticatedStaff,
   ): Promise<ShippingZone> {
     await this.findZoneByIdOrThrow(id);
+    assertNoNullRequired(dto, ['nameEn', 'nameAr', 'countries', 'isActive', 'displayOrder']);
     const zone = await this.prisma.shippingZone.update({
       where: { id },
-      data: { ...dto, countries: dto.countries?.map((c) => c.toUpperCase()) },
+      data: { ...dto, countries: dto.countries ? uniqueCountries(dto.countries) : undefined },
     });
     await this.auditLogService.record({
       staffUserId: actor.id,
@@ -98,6 +120,7 @@ export class ShippingService {
     actor: AuthenticatedStaff,
   ): Promise<ShippingRate> {
     await this.findZoneByIdOrThrow(zoneId);
+    assertDeliveryRange(dto.estimatedDaysMin, dto.estimatedDaysMax);
     try {
       const rate = await this.prisma.shippingRate.create({ data: { ...dto, zoneId } });
       await this.auditLogService.record({
@@ -144,6 +167,16 @@ export class ShippingService {
     const rate = await this.prisma.shippingRate.findFirst({ where: { id: rateId, zoneId } });
     if (!rate) {
       throw new ResourceNotFoundException('ShippingRate', rateId);
+    }
+    assertNoNullRequired(dto, ['nameEn', 'nameAr', 'price', 'isActive', 'displayOrder']);
+    // Validate the *effective* range: a PATCH that moves only one end is
+    // checked against the stored value of the other. Only when the request
+    // touches a day field, so unrelated edits to legacy rows are never blocked.
+    if (dto.estimatedDaysMin !== undefined || dto.estimatedDaysMax !== undefined) {
+      assertDeliveryRange(
+        dto.estimatedDaysMin !== undefined ? dto.estimatedDaysMin : rate.estimatedDaysMin,
+        dto.estimatedDaysMax !== undefined ? dto.estimatedDaysMax : rate.estimatedDaysMax,
+      );
     }
     const updated = await this.prisma.shippingRate.update({ where: { id: rateId }, data: dto });
     await this.auditLogService.record({
