@@ -20,6 +20,7 @@ import {
   CART_INCLUDE,
   CartPricingService,
   effectiveUnitPrice,
+  toBundleSourceLine,
   findCouponValidityError,
 } from '../cart/cart-pricing.service';
 import { ReservationsService } from '../inventory/reservations/reservations.service';
@@ -310,14 +311,9 @@ export class OrdersService {
         // same order (buildView filters cart.items to available ones
         // preserving order, exactly like `availableCartItems` here).
         const couponIsApplied = Boolean(cart.coupon) && !priced.couponWarning;
-        const bundleSourceLines: BundleSourceLine[] = availableCartItems.map((item, lineIndex) => ({
-          lineIndex,
-          variantId: item.variant.id,
-          phoneModelId: item.variant.phoneModelId,
-          unitPrice: effectiveUnitPrice(item.variant),
-          quantity: item.quantity,
-          currency: item.variant.currency,
-        }));
+        const bundleSourceLines: BundleSourceLine[] = availableCartItems.map((item, lineIndex) =>
+          toBundleSourceLine(item, lineIndex),
+        );
         const bundleInstances = computeBundleInstances(bundleSourceLines, activeBundles, {
           couponIsApplied,
         });

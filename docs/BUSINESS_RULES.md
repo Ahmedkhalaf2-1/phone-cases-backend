@@ -638,6 +638,44 @@ rationale, including the deterministic grouping algorithm.
   pairing is split across more than one `OrderItem` row at order-creation time so each row's
   `bundleDiscount` stays exact.
 
+### 31a. Bundle eligibility scopes and group size
+
+`BundlePromotion.scope` decides which cart units may fill a bundle slot; it is evaluated at pricing
+time against live catalog relations, never against a snapshot of ids:
+
+| scope | eligibility | stored in |
+| --- | --- | --- |
+| `SPECIFIC_VARIANTS` (default, = pre-scope behavior) | listed variants, each with optional surcharge | `BundleEligibleVariant` |
+| `ALL_PRODUCTS` | every purchasable cart line - new products join automatically | nothing |
+| `PRODUCTS` / `COLLECTIONS` / `CASE_TYPES` / `PHONE_BRANDS` / `PHONE_MODELS` | line's product / any of its collections / case type / model's brand / model is in the target list | `BundleScopeTarget` |
+
+- Only the storage matching the scope may be populated; mixed requests (e.g. `ALL_PRODUCTS` with
+  `eligibleVariants`) are rejected with 400, as are unknown target ids.
+- `bundleSize` (default 2, minimum 2) is the number of units per instance. With
+  `requireDifferentPhoneModels`, each instance takes one unit from each of `bundleSize` distinct
+  phone-model buckets.
+- Surcharges only exist for `SPECIFIC_VARIANTS`.
+- **`ALL_PRODUCTS` (and every other scope) includes personalizable products.** A personalized line
+  participates at its effective unit price (`variant.price + customizationPrice`, the same
+  `effectiveUnitPrice` used by cart/quote/order), so a fixed bundle total replaces that whole price,
+  including any customization fee. While `customizationPrice` is 0 this changes nothing; if a fee is
+  introduced later, decide whether personalized items should be excluded (not built yet). A
+  personalizable line with no design attached is unavailable and never bundled.
+- **Grouping is deterministic and order-independent:** within a bucket units are grouped highest
+  price first, so the customer always receives the best valid combination regardless of the order
+  items were added. Unchanged by scoping.
+- **Schedule:** `startsAt`/`expiresAt` are both optional; `expiresAt` must be later than `startsAt`
+  (checked on create, and on PATCH against the persisted value for whichever side is not sent).
+  PATCH with `null` clears a date; omitting a field leaves it unchanged. Pricing applies a bundle only
+  while `startsAt <= now <= expiresAt`.
+- Within a bucket, units are grouped highest price first so a fixed price over mixed-price items
+  discounts the expensive units. Equal prices keep cart order. The never-increase-total guard is
+  unchanged: a grouping whose fixed total + surcharges would exceed its normal price is skipped.
+- Enabling checks completeness for the scope (>= 2 variants, or >= 1 target) and, for
+  `requireDifferentPhoneModels`, that the eligible set spans at least `bundleSize` phone-model buckets.
+- Admin picker endpoints: `GET /admin/bundles/variant-options` (paginated, filterable) and
+  `GET /admin/bundles/variant-options/ids` (capped at 1000 ids, for "select all results").
+
 ## 32. Minimal manual refund/return administration
 
 Staff-only; no customer-facing refund request flow and no automated money movement anywhere - a

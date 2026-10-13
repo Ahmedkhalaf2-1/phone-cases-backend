@@ -9,6 +9,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
@@ -18,6 +19,8 @@ import { Roles } from '../../../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../common/guards/roles.guard';
 import type { AuthenticatedStaff } from '../../auth/types/authenticated-staff.type';
+import { BundleVariantIdsQueryDto } from './dto/bundle-variant-ids-query.dto';
+import { BundleVariantOptionsQueryDto } from './dto/bundle-variant-options-query.dto';
 import { BundlesService } from './bundles.service';
 import { CreateBundleDto } from './dto/create-bundle.dto';
 import { UpdateBundleDto } from './dto/update-bundle.dto';
@@ -33,6 +36,22 @@ export class BundlesAdminController {
   @Post()
   create(@Body() dto: CreateBundleDto, @CurrentStaff() actor: AuthenticatedStaff) {
     return this.service.create(dto, actor);
+  }
+
+  // Declared before ':id' so "variant-options" is never parsed as a bundle id.
+  @Get('variant-options')
+  variantOptions(@Query() query: BundleVariantOptionsQueryDto) {
+    return this.service.listVariantOptions(query);
+  }
+
+  @Get('variant-options/ids')
+  variantOptionIds(@Query() query: BundleVariantOptionsQueryDto) {
+    return this.service.listVariantOptionIds(query);
+  }
+
+  @Get('variant-options/by-ids')
+  variantsByIds(@Query() query: BundleVariantIdsQueryDto) {
+    return this.service.listVariantsByIds(query.ids);
   }
 
   @Get()

@@ -1,5 +1,18 @@
 import { allocateDiscount } from '../../orders/order-pricing.util';
 
+/** Mirrors the Prisma `BundleScope` enum - kept as a plain union so this file stays Prisma-free. */
+export type BundleEligibilityScope =
+  | 'SPECIFIC_VARIANTS'
+  | 'ALL_PRODUCTS'
+  | 'PRODUCTS'
+  | 'COLLECTIONS'
+  | 'CASE_TYPES'
+  | 'PHONE_BRANDS'
+  | 'PHONE_MODELS';
+
+/** Units per bundle instance when a config does not say otherwise (the original pair). */
+export const DEFAULT_BUNDLE_SIZE = 2;
+
 /** One bundle's configuration, already flattened for pure calculation - no Prisma types here. */
 export interface BundlePricingConfig {
   id: string;
@@ -8,8 +21,17 @@ export interface BundlePricingConfig {
   requireDifferentPhoneModels: boolean;
   isRepeatable: boolean;
   allowCouponStacking: boolean;
-  /** variantId -> explicit per-variant surcharge added on top of fixedTotal. */
+  /**
+   * variantId -> explicit per-variant surcharge added on top of fixedTotal.
+   * Only consulted for the SPECIFIC_VARIANTS scope.
+   */
   eligibleVariants: Map<string, number>;
+  /** Defaults to SPECIFIC_VARIANTS (the original behavior). */
+  scope?: BundleEligibilityScope;
+  /** Ids of the products/collections/case types/brands/models for the matching scope. */
+  targetIds?: Set<string>;
+  /** Units that make up one instance; defaults to DEFAULT_BUNDLE_SIZE. */
+  bundleSize?: number;
 }
 
 /** One cart/order line, indexed by its position in the caller's own item array. */
@@ -20,6 +42,11 @@ export interface BundleSourceLine {
   unitPrice: number;
   quantity: number;
   currency: string;
+  /** Catalog attributes used by the non-variant scopes; absent means "unknown, never matches". */
+  productId?: string;
+  caseTypeId?: string | null;
+  phoneBrandId?: string | null;
+  collectionIds?: string[];
 }
 
 export interface BundleInstanceResult {
@@ -27,8 +54,35 @@ export interface BundleInstanceResult {
   fixedTotalApplied: number;
   normalSubtotal: number;
   discountAmount: number;
-  /** Exactly two entries - one per unit that formed this instance. */
+  /** One entry per unit that formed this instance (bundleSize entries). */
   unitAllocations: { lineIndex: number; discount: number }[];
+}
+
+/**
+ * Whether a cart line may fill a slot in `bundle`. Evaluated against the
+ * line's live catalog attributes at pricing time - nothing about "all
+ * products" or a collection is ever snapshotted into the bundle.
+ */
+export function isLineEligible(line: BundleSourceLine, bundle: BundlePricingConfig): boolean {
+  const targets = bundle.targetIds ?? new Set<string>();
+  switch (bundle.scope ?? 'SPECIFIC_VARIANTS') {
+    case 'ALL_PRODUCTS':
+      return true;
+    case 'SPECIFIC_VARIANTS':
+      return bundle.eligibleVariants.has(line.variantId);
+    case 'PRODUCTS':
+      return line.productId !== undefined && targets.has(line.productId);
+    case 'COLLECTIONS':
+      return (line.collectionIds ?? []).some((id) => targets.has(id));
+    case 'CASE_TYPES':
+      return Boolean(line.caseTypeId) && targets.has(line.caseTypeId as string);
+    case 'PHONE_BRANDS':
+      return Boolean(line.phoneBrandId) && targets.has(line.phoneBrandId as string);
+    case 'PHONE_MODELS':
+      return Boolean(line.phoneModelId) && targets.has(line.phoneModelId as string);
+    default:
+      return false;
+  }
 }
 
 interface Unit {
@@ -39,7 +93,8 @@ interface Unit {
 }
 
 /**
- * Groups eligible cart/order lines into two-item bundle instances and
+ * Groups eligible cart/order lines into bundle instances of
+ * `bundleSize` units (default 2) and
  * computes each instance's discount, deterministically. Pure and
  * side-effect-free so the exact same calculation runs for a cart's live
  * pricing view, a checkout quote, AND order creation - see
@@ -52,10 +107,14 @@ interface Unit {
  * the two largest buckets are paired (ties broken by bucket key, then by
  * the earliest-added unit within a bucket) - the standard greedy strategy
  * for maximizing the number of pairs formed across categories WITHIN that
- * one bundle. If a specific pairing would ever discount to a negative
- * amount (fixedTotal + surcharges exceeding the two units' normal price -
- * a misconfiguration), bundling for that promotion stops entirely rather
- * than ever increasing the payable total.
+ * one bundle. Within a bucket, units are taken highest price first, so a
+ * fixed price over mixed-price items (e.g. "any 2 for 450" over a cart of
+ * 200/200/500/500) discounts the expensive units instead of stalling on a
+ * cheap pair. If a specific grouping would ever discount to a negative
+ * amount (fixedTotal + surcharges exceeding the units' normal price - a
+ * misconfiguration, or a fixed price above the items' normal cost),
+ * bundling for that promotion stops entirely rather than ever increasing
+ * the payable total.
  *
  * Ordering ACROSS bundles when several are active and eligible for the
  * same physical units (a deliberate, documented choice, NOT a claim of
@@ -85,8 +144,14 @@ export function computeBundleInstances(
       continue;
     }
 
+    const size = bundle.bundleSize ?? DEFAULT_BUNDLE_SIZE;
+    if (size < 2) {
+      continue;
+    }
+    const isVariantScope = (bundle.scope ?? 'SPECIFIC_VARIANTS') === 'SPECIFIC_VARIANTS';
+
     const eligibleLines = lines.filter(
-      (line) => bundle.eligibleVariants.has(line.variantId) && line.currency === bundle.currency,
+      (line) => line.currency === bundle.currency && isLineEligible(line, bundle),
     );
     if (eligibleLines.length === 0) {
       continue;
@@ -94,7 +159,7 @@ export function computeBundleInstances(
 
     const units: Unit[] = [];
     for (const line of eligibleLines) {
-      const surcharge = bundle.eligibleVariants.get(line.variantId) ?? 0;
+      const surcharge = isVariantScope ? (bundle.eligibleVariants.get(line.variantId) ?? 0) : 0;
       const remaining = remainingQuantityByLine.get(line.lineIndex) ?? 0;
       for (let i = 0; i < remaining; i += 1) {
         units.push({
@@ -119,6 +184,11 @@ export function computeBundleInstances(
         buckets.set(key, [unit]);
       }
     }
+    // Highest price first within each bucket (stable, so equal prices keep
+    // cart order and existing equal-price behavior is unchanged).
+    for (const bucket of buckets.values()) {
+      bucket.sort((left, right) => right.price - left.price);
+    }
 
     let formedAny = false;
 
@@ -126,68 +196,70 @@ export function computeBundleInstances(
       if (!bundle.isRepeatable && formedAny) break;
 
       const nonEmpty = [...buckets.entries()].filter(([, bucket]) => bucket.length > 0);
-      let unitA: Unit;
-      let unitB: Unit;
-      let keyA: string;
-      let keyB: string;
+      const chosen: { key: string; unit: Unit }[] = [];
 
       if (bundle.requireDifferentPhoneModels) {
-        if (nonEmpty.length < 2) break;
+        // One unit from each of the `size` largest distinct-model buckets.
+        if (nonEmpty.length < size) break;
         nonEmpty.sort(
           ([keyLeft, left], [keyRight, right]) =>
             right.length - left.length || (keyLeft < keyRight ? -1 : keyLeft > keyRight ? 1 : 0),
         );
-        [keyA] = nonEmpty[0];
-        [keyB] = nonEmpty[1];
-        unitA = buckets.get(keyA)![0];
-        unitB = buckets.get(keyB)![0];
+        for (const [key, bucket] of nonEmpty.slice(0, size)) {
+          chosen.push({ key, unit: bucket[0] });
+        }
       } else {
         const totalUnits = nonEmpty.reduce((sum, [, bucket]) => sum + bucket.length, 0);
-        if (totalUnits < 2) break;
-        [keyA] = nonEmpty[0];
-        keyB = keyA;
-        const bucket = buckets.get(keyA)!;
-        unitA = bucket[0];
-        unitB = bucket[1];
+        if (totalUnits < size) break;
+        const [key, bucket] = nonEmpty[0];
+        for (const unit of bucket.slice(0, size)) {
+          chosen.push({ key, unit });
+        }
       }
 
-      const normalSubtotal = unitA.price + unitB.price;
-      const effectiveTotal = bundle.fixedTotal + unitA.surcharge + unitB.surcharge;
+      const chosenUnits = chosen.map((entry) => entry.unit);
+      const normalSubtotal = chosenUnits.reduce((sum, unit) => sum + unit.price, 0);
+      const effectiveTotal =
+        bundle.fixedTotal + chosenUnits.reduce((sum, unit) => sum + unit.surcharge, 0);
       const discountAmount = normalSubtotal - effectiveTotal;
       if (discountAmount < 0) {
         break;
       }
 
-      if (keyA === keyB) {
-        buckets.set(keyA, buckets.get(keyA)!.slice(2));
+      // Same bucket (requireDifferentPhoneModels false) consumes `size`
+      // units from it; otherwise one unit from each chosen bucket.
+      if (bundle.requireDifferentPhoneModels) {
+        for (const { key } of chosen) {
+          buckets.set(key, buckets.get(key)!.slice(1));
+        }
       } else {
-        buckets.set(keyA, buckets.get(keyA)!.slice(1));
-        buckets.set(keyB, buckets.get(keyB)!.slice(1));
+        buckets.set(chosen[0].key, buckets.get(chosen[0].key)!.slice(size));
       }
 
-      // Claim these two units globally, across every bundle this call
+      // Claim these units globally, across every bundle this call
       // processes - the next bundle in `bundles` (if any) must never see
       // them as still available, even though they remain untouched in
       // `lines` itself.
-      remainingQuantityByLine.set(
-        unitA.lineIndex,
-        (remainingQuantityByLine.get(unitA.lineIndex) ?? 0) - 1,
-      );
-      remainingQuantityByLine.set(
-        unitB.lineIndex,
-        (remainingQuantityByLine.get(unitB.lineIndex) ?? 0) - 1,
-      );
+      for (const unit of chosenUnits) {
+        remainingQuantityByLine.set(
+          unit.lineIndex,
+          (remainingQuantityByLine.get(unit.lineIndex) ?? 0) - 1,
+        );
+      }
 
-      const [discountA, discountB] = allocateDiscount([unitA.price, unitB.price], discountAmount);
+      const allocations = allocateDiscount(
+        chosenUnits.map((unit) => unit.price),
+        discountAmount,
+      );
       results.push({
         bundlePromotionId: bundle.id,
         fixedTotalApplied: effectiveTotal,
         normalSubtotal,
         discountAmount,
-        unitAllocations: [
-          { lineIndex: unitA.lineIndex, discount: discountA },
-          { lineIndex: unitB.lineIndex, discount: discountB },
-        ],
+        unitAllocations: chosenUnits.map((unit, index) => ({
+          lineIndex: unit.lineIndex,
+          discount: allocations[index],
+        })),
       });
       formedAny = true;
     }

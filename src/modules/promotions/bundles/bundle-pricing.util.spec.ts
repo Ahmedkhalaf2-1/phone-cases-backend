@@ -224,3 +224,215 @@ describe('computeBundleInstances', () => {
     });
   });
 });
+
+describe('computeBundleInstances - eligibility scopes and bundle size', () => {
+  // "Any 2 for 450 EGP" over the whole catalog: no variant list at all.
+  const anyTwoFor450 = (overrides: Partial<BundlePricingConfig> = {}) =>
+    bundle({
+      id: 'any-2',
+      fixedTotal: 45000,
+      scope: 'ALL_PRODUCTS',
+      requireDifferentPhoneModels: false,
+      eligibleVariants: new Map(),
+      ...overrides,
+    });
+  const total = (instances: ReturnType<typeof computeBundleInstances>) =>
+    instances.reduce((sum, instance) => sum + instance.discountAmount, 0);
+  const cartOf = (...prices: number[]) =>
+    prices.map((unitPrice, i) =>
+      line({ lineIndex: i, variantId: `never-listed-${i}`, unitPrice, phoneModelId: null }),
+    );
+
+  it('ALL_PRODUCTS matches variants that were never listed anywhere (e.g. created later)', () => {
+    const result = computeBundleInstances(cartOf(30000, 30000), [anyTwoFor450()], {
+      couponIsApplied: false,
+    });
+    expect(result).toHaveLength(1);
+    expect(result[0].fixedTotalApplied).toBe(45000);
+    expect(result[0].discountAmount).toBe(15000);
+  });
+
+  it('does nothing for a single eligible item', () => {
+    expect(
+      computeBundleInstances(cartOf(30000), [anyTwoFor450()], { couponIsApplied: false }),
+    ).toEqual([]);
+  });
+
+  it('applies once to 3 items and leaves the third at normal price', () => {
+    const result = computeBundleInstances(cartOf(30000, 30000, 30000), [anyTwoFor450()], {
+      couponIsApplied: false,
+    });
+    expect(result).toHaveLength(1);
+  });
+
+  it('applies twice to 4 items when repeatable, once when not', () => {
+    const items = cartOf(30000, 30000, 30000, 30000);
+    expect(
+      computeBundleInstances(items, [anyTwoFor450()], { couponIsApplied: false }),
+    ).toHaveLength(2);
+    expect(
+      computeBundleInstances(items, [anyTwoFor450({ isRepeatable: false })], {
+        couponIsApplied: false,
+      }),
+    ).toHaveLength(1);
+  });
+
+  it('never charges more than the normal price (two items totalling 400 with a 450 bundle)', () => {
+    const result = computeBundleInstances(cartOf(20000, 20000), [anyTwoFor450()], {
+      couponIsApplied: false,
+    });
+    expect(result).toEqual([]);
+  });
+
+  it('bundles the most expensive units first when prices differ', () => {
+    // Cheap pair (400) would be negative; the 500+500 pair saves 550.
+    const result = computeBundleInstances(cartOf(20000, 20000, 50000, 50000), [anyTwoFor450()], {
+      couponIsApplied: false,
+    });
+    expect(result).toHaveLength(1);
+    expect(result[0].normalSubtotal).toBe(100000);
+    expect(result[0].discountAmount).toBe(55000);
+    expect(result[0].unitAllocations.map((a) => a.lineIndex).sort()).toEqual([2, 3]);
+  });
+
+  it('never discounts below zero for any line allocation and total never exceeds subtotal', () => {
+    const items = cartOf(33333, 41111, 50000, 27777, 90001);
+    const result = computeBundleInstances(items, [anyTwoFor450()], { couponIsApplied: false });
+    const subtotal = items.reduce((sum, i) => sum + i.unitPrice, 0);
+    expect(total(result)).toBeLessThanOrEqual(subtotal);
+    for (const instance of result) {
+      expect(instance.discountAmount).toBeGreaterThanOrEqual(0);
+      expect(instance.unitAllocations.reduce((s, a) => s + a.discount, 0)).toBe(
+        instance.discountAmount,
+      );
+    }
+  });
+
+  it('respects coupon stacking policy for ALL_PRODUCTS bundles', () => {
+    const items = cartOf(30000, 30000);
+    expect(computeBundleInstances(items, [anyTwoFor450()], { couponIsApplied: true })).toEqual([]);
+    expect(
+      computeBundleInstances(items, [anyTwoFor450({ allowCouponStacking: true })], {
+        couponIsApplied: true,
+      }),
+    ).toHaveLength(1);
+  });
+
+  it('ALL_PRODUCTS still honors requireDifferentPhoneModels', () => {
+    const sameModel = [
+      line({ lineIndex: 0, variantId: 'x', phoneModelId: 'm1', unitPrice: 30000 }),
+      line({ lineIndex: 1, variantId: 'y', phoneModelId: 'm1', unitPrice: 30000 }),
+    ];
+    const diffModel = [
+      line({ lineIndex: 0, variantId: 'x', phoneModelId: 'm1', unitPrice: 30000 }),
+      line({ lineIndex: 1, variantId: 'y', phoneModelId: 'm2', unitPrice: 30000 }),
+    ];
+    const config = anyTwoFor450({ requireDifferentPhoneModels: true });
+    expect(computeBundleInstances(sameModel, [config], { couponIsApplied: false })).toEqual([]);
+    expect(computeBundleInstances(diffModel, [config], { couponIsApplied: false })).toHaveLength(1);
+  });
+
+  it('ignores ineligible items in a mixed cart under a specific scope', () => {
+    const config = anyTwoFor450({
+      scope: 'CASE_TYPES',
+      targetIds: new Set(['case-shock']),
+    });
+    const items = [
+      line({
+        lineIndex: 0,
+        variantId: 'a',
+        caseTypeId: 'case-shock',
+        unitPrice: 30000,
+        phoneModelId: null,
+      }),
+      line({
+        lineIndex: 1,
+        variantId: 'b',
+        caseTypeId: 'case-slim',
+        unitPrice: 30000,
+        phoneModelId: null,
+      }),
+      line({
+        lineIndex: 2,
+        variantId: 'c',
+        caseTypeId: 'case-shock',
+        unitPrice: 30000,
+        phoneModelId: null,
+      }),
+    ];
+    const result = computeBundleInstances(items, [config], { couponIsApplied: false });
+    expect(result).toHaveLength(1);
+    expect(result[0].unitAllocations.map((a) => a.lineIndex).sort()).toEqual([0, 2]);
+  });
+
+  it.each([
+    ['PRODUCTS', { productId: 'p1' }, new Set(['p1']), new Set(['p9'])],
+    ['COLLECTIONS', { collectionIds: ['c1', 'c2'] }, new Set(['c2']), new Set(['c9'])],
+    ['PHONE_BRANDS', { phoneBrandId: 'b1' }, new Set(['b1']), new Set(['b9'])],
+    ['PHONE_MODELS', { phoneModelId: 'pm1' }, new Set(['pm1']), new Set(['pm9'])],
+  ] as [BundlePricingConfig['scope'], Partial<BundleSourceLine>, Set<string>, Set<string>][])(
+    '%s scope matches only its targets',
+    (scope, attrs, hit, miss) => {
+      const items = [0, 1].map((i) =>
+        line({ lineIndex: i, variantId: `v${i}`, unitPrice: 30000, ...attrs }),
+      );
+      const base = anyTwoFor450({ scope });
+      expect(
+        computeBundleInstances(items, [{ ...base, targetIds: new Set(hit) }], {
+          couponIsApplied: false,
+        }),
+      ).toHaveLength(1);
+      expect(
+        computeBundleInstances(items, [{ ...base, targetIds: new Set(miss) }], {
+          couponIsApplied: false,
+        }),
+      ).toEqual([]);
+    },
+  );
+
+  it('SPECIFIC_VARIANTS still ignores unlisted variants and keeps surcharges', () => {
+    const config = bundle({
+      requireDifferentPhoneModels: false,
+      eligibleVariants: new Map([
+        ['variant-a', 5000],
+        ['variant-b', 0],
+      ]),
+    });
+    const items = [
+      line({ lineIndex: 0, variantId: 'variant-a', unitPrice: 40000 }),
+      line({ lineIndex: 1, variantId: 'variant-b', unitPrice: 40000 }),
+      line({ lineIndex: 2, variantId: 'unlisted', unitPrice: 40000 }),
+    ];
+    const result = computeBundleInstances(items, [config], { couponIsApplied: false });
+    expect(result).toHaveLength(1);
+    expect(result[0].fixedTotalApplied).toBe(55000);
+  });
+
+  it('supports bundles larger than two units', () => {
+    const config = anyTwoFor450({ bundleSize: 3, fixedTotal: 60000 });
+    const result = computeBundleInstances(cartOf(30000, 30000, 30000, 30000), [config], {
+      couponIsApplied: false,
+    });
+    expect(result).toHaveLength(1);
+    expect(result[0].unitAllocations).toHaveLength(3);
+    expect(result[0].discountAmount).toBe(30000);
+  });
+
+  it('size-3 bundles requiring different models need three distinct models', () => {
+    const config = anyTwoFor450({
+      bundleSize: 3,
+      fixedTotal: 60000,
+      requireDifferentPhoneModels: true,
+    });
+    const two = [
+      line({ lineIndex: 0, variantId: 'a', phoneModelId: 'm1', unitPrice: 30000 }),
+      line({ lineIndex: 1, variantId: 'b', phoneModelId: 'm2', unitPrice: 30000 }),
+    ];
+    expect(computeBundleInstances(two, [config], { couponIsApplied: false })).toEqual([]);
+    const three = [
+      ...two,
+      line({ lineIndex: 2, variantId: 'c', phoneModelId: 'm3', unitPrice: 30000 }),
+    ];
+    expect(computeBundleInstances(three, [config], { couponIsApplied: false })).toHaveLength(1);
+  });
+});

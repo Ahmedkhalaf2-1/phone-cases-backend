@@ -25,7 +25,14 @@ export const CART_INCLUDE = {
     include: {
       variant: {
         include: {
-          product: { include: { media: PRIMARY_MEDIA_INCLUDE } },
+          product: {
+            include: {
+              media: PRIMARY_MEDIA_INCLUDE,
+              // Needed by COLLECTIONS-scoped bundles; loaded in the same
+              // query as the cart, so scope matching adds no round trips.
+              collections: { select: { collectionId: true } },
+            },
+          },
           phoneModel: { include: { brand: true } },
           caseType: true,
           stockItem: true,
@@ -88,6 +95,31 @@ export function effectiveUnitPrice(variant: {
   customizationPrice: number;
 }): number {
   return variant.price + (variant.isPersonalizable ? variant.customizationPrice : 0);
+}
+
+/**
+ * The single place a cart/order line becomes a bundle-pricing input, so the
+ * cart view, checkout quote and order creation can never disagree about
+ * which catalog attributes (product, collections, case type, brand, model)
+ * a line is matched on.
+ */
+export function toBundleSourceLine(
+  item: CartItemWithRelations,
+  lineIndex: number,
+): BundleSourceLine {
+  const { variant } = item;
+  return {
+    lineIndex,
+    variantId: variant.id,
+    phoneModelId: variant.phoneModelId,
+    unitPrice: effectiveUnitPrice(variant),
+    quantity: item.quantity,
+    currency: variant.currency,
+    productId: variant.productId,
+    caseTypeId: variant.caseTypeId,
+    phoneBrandId: variant.phoneModel?.brandId ?? null,
+    collectionIds: variant.product.collections.map((c) => c.collectionId),
+  };
 }
 
 export interface CartView {
@@ -182,14 +214,7 @@ export class CartPricingService {
     const bundleSourceLines: BundleSourceLine[] = cart.items
       .map((item, lineIndex) => ({ item, lineIndex }))
       .filter(({ lineIndex }) => items[lineIndex].isAvailable)
-      .map(({ item, lineIndex }) => ({
-        lineIndex,
-        variantId: item.variant.id,
-        phoneModelId: item.variant.phoneModelId,
-        unitPrice: effectiveUnitPrice(item.variant),
-        quantity: item.quantity,
-        currency: item.variant.currency,
-      }));
+      .map(({ item, lineIndex }) => toBundleSourceLine(item, lineIndex));
     const bundleInstances = computeBundleInstances(bundleSourceLines, activeBundles, {
       couponIsApplied,
     });

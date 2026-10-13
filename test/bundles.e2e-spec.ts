@@ -325,4 +325,286 @@ describe('Bundles (e2e)', () => {
       expect(cart.body.total).toBe(20000);
     });
   });
+  describe('eligibility scopes', () => {
+    const anyTwoFor450 = {
+      name: 'Any 2 for 450',
+      fixedTotal: 45000,
+      currency: 'EGP',
+      scope: 'ALL_PRODUCTS',
+      requireDifferentPhoneModels: false,
+      isEnabled: true,
+    };
+
+    function postBundle(body: Record<string, unknown>) {
+      return request(app.getHttpServer())
+        .post('/api/v1/admin/bundles')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send(body);
+    }
+
+    it('defaults to SPECIFIC_VARIANTS with a bundle size of 2 (backward compatible)', async () => {
+      const created = await postBundle({ name: 'Legacy shape' }).expect(201);
+      expect(created.body.scope).toBe('SPECIFIC_VARIANTS');
+      expect(created.body.bundleSize).toBe(2);
+      expect(created.body.targets).toEqual([]);
+    });
+
+    it('ALL_PRODUCTS stores no ids and applies to products created after the bundle', async () => {
+      const created = await postBundle(anyTwoFor450).expect(201);
+      expect(created.body.scope).toBe('ALL_PRODUCTS');
+      expect(created.body.eligibleVariants).toEqual([]);
+
+      // Created AFTER the bundle - never listed anywhere.
+      const first = await seedVariant(30000, null);
+      const second = await seedVariant(30000, null);
+      const token = await createCartWithItems([first.id, second.id]);
+      const cart = await request(app.getHttpServer())
+        .get('/api/v1/cart')
+        .set('X-Cart-Token', token)
+        .expect(200);
+      expect(cart.body.subtotal).toBe(60000);
+      expect(cart.body.bundleDiscountTotal).toBe(15000);
+      expect(cart.body.total).toBe(45000);
+    });
+
+    it('never charges more than the normal price for a cheap pair', async () => {
+      await postBundle(anyTwoFor450).expect(201);
+      const first = await seedVariant(20000, null);
+      const second = await seedVariant(20000, null);
+      const token = await createCartWithItems([first.id, second.id]);
+      const cart = await request(app.getHttpServer())
+        .get('/api/v1/cart')
+        .set('X-Cart-Token', token)
+        .expect(200);
+      expect(cart.body.bundleDiscountTotal).toBe(0);
+      expect(cart.body.total).toBe(40000);
+    });
+
+    it('rejects ALL_PRODUCTS combined with eligible variants or target ids', async () => {
+      const variant = await seedVariant(30000, null);
+      await postBundle({
+        ...anyTwoFor450,
+        isEnabled: false,
+        eligibleVariants: [{ variantId: variant.id }],
+      }).expect(400);
+      await postBundle({
+        ...anyTwoFor450,
+        isEnabled: false,
+        targetIds: ['3f2b0b52-6c7b-4f55-9c52-0d6f0a6f8a11'],
+      }).expect(400);
+    });
+
+    it('rejects out-of-range and duplicate input with 400 instead of a server error', async () => {
+      const variant = await seedVariant(30000, null);
+      const manyIds = Array.from(
+        { length: 1001 },
+        (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+      );
+      await postBundle({ ...anyTwoFor450, isEnabled: false, bundleSize: 51 }).expect(400);
+      await postBundle({ ...anyTwoFor450, isEnabled: false, bundleSize: 3_000_000_000 }).expect(
+        400,
+      );
+      await postBundle({ ...anyTwoFor450, isEnabled: false, fixedTotal: 3_000_000_000 }).expect(
+        400,
+      );
+      await postBundle({
+        ...anyTwoFor450,
+        isEnabled: false,
+        scope: 'SPECIFIC_VARIANTS',
+        eligibleVariants: [{ variantId: variant.id }, { variantId: variant.id }],
+      }).expect(400);
+      await postBundle({
+        ...anyTwoFor450,
+        isEnabled: false,
+        scope: 'SPECIFIC_VARIANTS',
+        eligibleVariants: manyIds.map((variantId) => ({ variantId })),
+      }).expect(400);
+    });
+
+    it('rejects target ids that do not exist', async () => {
+      await postBundle({
+        ...anyTwoFor450,
+        scope: 'COLLECTIONS',
+        targetIds: ['3f2b0b52-6c7b-4f55-9c52-0d6f0a6f8a11'],
+      }).expect(400);
+    });
+
+    it('COLLECTIONS scope only discounts products in the chosen collection', async () => {
+      const collection = await prisma.collection.create({
+        data: { slug: `col-${Date.now()}`, nameEn: 'Anime', nameAr: 'انمي' },
+      });
+      const inCollection = await seedVariant(30000, null);
+      const outside = await seedVariant(30000, null);
+      await prisma.productCollection.create({
+        data: { productId: inCollection.productId, collectionId: collection.id },
+      });
+
+      await postBundle({
+        ...anyTwoFor450,
+        scope: 'COLLECTIONS',
+        targetIds: [collection.id],
+      }).expect(201);
+
+      const token = await createCartWithItems([inCollection.id, outside.id]);
+      const cart = await request(app.getHttpServer())
+        .get('/api/v1/cart')
+        .set('X-Cart-Token', token)
+        .expect(200);
+      expect(cart.body.bundleDiscountTotal).toBe(0);
+
+      const second = await seedVariant(30000, null);
+      await prisma.productCollection.create({
+        data: { productId: second.productId, collectionId: collection.id },
+      });
+      await request(app.getHttpServer())
+        .post('/api/v1/cart/items')
+        .set('X-Cart-Token', token)
+        .send({ variantId: second.id, quantity: 1 })
+        .expect(201);
+      const updated = await request(app.getHttpServer())
+        .get('/api/v1/cart')
+        .set('X-Cart-Token', token)
+        .expect(200);
+      expect(updated.body.bundleDiscountTotal).toBe(15000);
+    });
+
+    it('returns every matching id for select-all, and labels for a selection by id', async () => {
+      const first = await seedVariant(30000, null);
+      const second = await seedVariant(30000, null);
+      const ids = await request(app.getHttpServer())
+        .get('/api/v1/admin/bundles/variant-options/ids')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+      expect(ids.body.total).toBe(2);
+      expect(ids.body.ids.sort()).toEqual([first.id, second.id].sort());
+      expect(ids.body.truncated).toBeUndefined();
+
+      const labels = await request(app.getHttpServer())
+        .get(`/api/v1/admin/bundles/variant-options/by-ids?ids=${first.id},${second.id}`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+      expect(labels.body).toHaveLength(2);
+      expect(labels.body[0].product.nameEn).toBe('Case');
+      await request(app.getHttpServer())
+        .get('/api/v1/admin/bundles/variant-options/by-ids?ids=not-a-uuid')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(400);
+    });
+
+    it('lists variant options with filters and pagination', async () => {
+      const variant = await seedVariant(30000, null);
+      await seedVariant(30000, null);
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/admin/bundles/variant-options?productId=${variant.productId}&pageSize=10`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+      expect(res.body.meta.totalItems).toBe(1);
+      expect(res.body.items[0].id).toBe(variant.id);
+      expect(res.body.items[0].product.nameEn).toBe('Case');
+    });
+  });
+  describe('scheduling', () => {
+    const base = {
+      name: 'Scheduled',
+      fixedTotal: 45000,
+      currency: 'EGP',
+      scope: 'ALL_PRODUCTS',
+      requireDifferentPhoneModels: false,
+    };
+    const post = (body: Record<string, unknown>) =>
+      request(app.getHttpServer())
+        .post('/api/v1/admin/bundles')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ ...base, ...body });
+    const patch = (id: string, body: Record<string, unknown>) =>
+      request(app.getHttpServer())
+        .patch(`/api/v1/admin/bundles/${id}`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send(body);
+
+    it('creates with a valid start and end, start only, and end only', async () => {
+      const both = await post({
+        startsAt: '2026-11-01T00:00:00Z',
+        expiresAt: '2026-12-01T00:00:00Z',
+      }).expect(201);
+      expect(both.body.startsAt).toBe('2026-11-01T00:00:00.000Z');
+      expect(both.body.expiresAt).toBe('2026-12-01T00:00:00.000Z');
+      const startOnly = await post({ startsAt: '2026-11-01T00:00:00Z' }).expect(201);
+      expect(startOnly.body.expiresAt).toBeNull();
+      const endOnly = await post({ expiresAt: '2026-12-01T00:00:00Z' }).expect(201);
+      expect(endOnly.body.startsAt).toBeNull();
+    });
+
+    it('rejects expiresAt before or equal to startsAt on create', async () => {
+      await post({ startsAt: '2026-12-01T00:00:00Z', expiresAt: '2026-11-01T00:00:00Z' }).expect(
+        400,
+      );
+      await post({ startsAt: '2026-11-01T00:00:00Z', expiresAt: '2026-11-01T00:00:00Z' }).expect(
+        400,
+      );
+    });
+
+    it('clears start, end, and both with null on PATCH', async () => {
+      const created = await post({
+        startsAt: '2026-11-01T00:00:00Z',
+        expiresAt: '2026-12-01T00:00:00Z',
+      }).expect(201);
+      const id = created.body.id as string;
+
+      const noStart = await patch(id, { startsAt: null }).expect(200);
+      expect(noStart.body.startsAt).toBeNull();
+      expect(noStart.body.expiresAt).toBe('2026-12-01T00:00:00.000Z');
+
+      await patch(id, { startsAt: '2026-11-01T00:00:00Z' }).expect(200);
+      const noEnd = await patch(id, { expiresAt: null }).expect(200);
+      expect(noEnd.body.expiresAt).toBeNull();
+      expect(noEnd.body.startsAt).toBe('2026-11-01T00:00:00.000Z');
+
+      const neither = await patch(id, { startsAt: null, expiresAt: null }).expect(200);
+      expect(neither.body.startsAt).toBeNull();
+      expect(neither.body.expiresAt).toBeNull();
+    });
+
+    it('reports a server-computed lifecycle status', async () => {
+      const scheduled = await post({ isEnabled: true, startsAt: '2099-01-01T00:00:00Z' }).expect(
+        201,
+      );
+      expect(scheduled.body.status).toBe('SCHEDULED');
+      const expired = await post({ isEnabled: true, expiresAt: '2020-01-01T00:00:00Z' }).expect(
+        201,
+      );
+      expect(expired.body.status).toBe('EXPIRED');
+      const active = await post({ isEnabled: true }).expect(201);
+      expect(active.body.status).toBe('ACTIVE');
+      const disabled = await post({}).expect(201);
+      expect(disabled.body.status).toBe('DISABLED');
+    });
+
+    it('an unrelated PATCH leaves the schedule untouched', async () => {
+      const created = await post({
+        startsAt: '2026-11-01T00:00:00Z',
+        expiresAt: '2026-12-01T00:00:00Z',
+      }).expect(201);
+      const renamed = await patch(created.body.id, { name: 'Renamed' }).expect(200);
+      expect(renamed.body.startsAt).toBe('2026-11-01T00:00:00.000Z');
+      expect(renamed.body.expiresAt).toBe('2026-12-01T00:00:00.000Z');
+    });
+
+    it('rejects a PATCH that would invalidate the persisted range', async () => {
+      const created = await post({
+        startsAt: '2026-11-01T00:00:00Z',
+        expiresAt: '2026-12-01T00:00:00Z',
+      }).expect(201);
+      const id = created.body.id as string;
+      await patch(id, { startsAt: '2026-12-15T00:00:00Z' }).expect(400);
+      await patch(id, { expiresAt: '2026-10-01T00:00:00Z' }).expect(400);
+      await patch(id, { expiresAt: '2026-11-01T00:00:00Z' }).expect(400);
+      const unchanged = await request(app.getHttpServer())
+        .get(`/api/v1/admin/bundles/${id}`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+      expect(unchanged.body.startsAt).toBe('2026-11-01T00:00:00.000Z');
+      expect(unchanged.body.expiresAt).toBe('2026-12-01T00:00:00.000Z');
+    });
+  });
 });

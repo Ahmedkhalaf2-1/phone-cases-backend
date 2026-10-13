@@ -104,6 +104,8 @@ model PhoneBrand {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  bundleScopeTargets BundleScopeTarget[]
+
   @@map("phone_brands")
 }
 
@@ -124,6 +126,8 @@ model PhoneModel {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  bundleScopeTargets BundleScopeTarget[]
 
   @@index([brandId])
   @@map("phone_models")
@@ -146,6 +150,8 @@ model CaseType {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  bundleScopeTargets BundleScopeTarget[]
 
   @@map("case_types")
 }
@@ -171,6 +177,8 @@ model Collection {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  bundleScopeTargets BundleScopeTarget[]
 
   @@index([coverMediaAssetId])
   @@map("collections")
@@ -213,6 +221,8 @@ model Product {
   publishedAt DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+
+  bundleScopeTargets BundleScopeTarget[]
 
   @@index([status])
   @@map("products")
@@ -1199,6 +1209,21 @@ model Page {
 // docs/DECISIONS.md.
 // ---------------------------------------------------------------------------
 
+// Which cart units a BundlePromotion may group. Evaluated at pricing time
+// against live catalog relations, so ALL_PRODUCTS and the taxonomy scopes
+// automatically include products created after the bundle was configured.
+// SPECIFIC_VARIANTS keeps the original explicit BundleEligibleVariant list
+// (the only scope that supports per-variant surcharges).
+enum BundleScope {
+  SPECIFIC_VARIANTS
+  ALL_PRODUCTS
+  PRODUCTS
+  COLLECTIONS
+  CASE_TYPES
+  PHONE_BRANDS
+  PHONE_MODELS
+}
+
 model BundlePromotion {
   id   String @id @default(uuid())
   // Internal admin label only - never shown to customers as marketing copy.
@@ -1217,6 +1242,16 @@ model BundlePromotion {
   // off for a bundle that doesn't care about phone-model diversity.
   requireDifferentPhoneModels Boolean @default(true)
 
+  // How many eligible units make up one bundle instance ("any N for X").
+  // Defaults to 2, the original hardcoded pair size.
+  bundleSize Int @default(2)
+
+  // Eligibility rule. SPECIFIC_VARIANTS reads `eligibleVariants`; the
+  // PRODUCTS/COLLECTIONS/CASE_TYPES/PHONE_BRANDS/PHONE_MODELS scopes read
+  // `scopeTargets`; ALL_PRODUCTS reads neither. BundlesService enforces
+  // that only the storage matching `scope` is ever populated.
+  scope BundleScope @default(SPECIFIC_VARIANTS)
+
   // Whether more than one instance of this bundle can apply within the
   // same cart/order (e.g. 4 eligible units -> 2 bundle instances).
   isRepeatable Boolean @default(true)
@@ -1232,6 +1267,7 @@ model BundlePromotion {
   expiresAt DateTime?
 
   eligibleVariants BundleEligibleVariant[]
+  scopeTargets     BundleScopeTarget[]
   instances        BundleInstance[]
 
   createdAt DateTime @default(now())
@@ -1255,6 +1291,40 @@ model BundleEligibleVariant {
   @@unique([bundlePromotionId, variantId])
   @@index([variantId])
   @@map("bundle_eligible_variants")
+}
+
+// One eligibility target for a taxonomy-style BundlePromotion scope. Exactly
+// one of the five target columns is set, matching the bundle's `scope`
+// (enforced by a CHECK constraint in the migration and by BundlesService).
+// Real foreign keys with ON DELETE CASCADE: deleting a collection/case type/
+// etc. simply removes it from the bundle, never leaves a dangling id.
+model BundleScopeTarget {
+  id                String          @id @default(uuid())
+  bundlePromotionId String
+  bundlePromotion   BundlePromotion @relation(fields: [bundlePromotionId], references: [id], onDelete: Cascade)
+
+  productId    String?
+  product      Product?    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  collectionId String?
+  collection   Collection? @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  caseTypeId   String?
+  caseType     CaseType?   @relation(fields: [caseTypeId], references: [id], onDelete: Cascade)
+  phoneBrandId String?
+  phoneBrand   PhoneBrand? @relation(fields: [phoneBrandId], references: [id], onDelete: Cascade)
+  phoneModelId String?
+  phoneModel   PhoneModel? @relation(fields: [phoneModelId], references: [id], onDelete: Cascade)
+
+  @@unique([bundlePromotionId, productId])
+  @@unique([bundlePromotionId, collectionId])
+  @@unique([bundlePromotionId, caseTypeId])
+  @@unique([bundlePromotionId, phoneBrandId])
+  @@unique([bundlePromotionId, phoneModelId])
+  @@index([productId])
+  @@index([collectionId])
+  @@index([caseTypeId])
+  @@index([phoneBrandId])
+  @@index([phoneModelId])
+  @@map("bundle_scope_targets")
 }
 
 // One row per bundle grouping actually applied to an order - pure
