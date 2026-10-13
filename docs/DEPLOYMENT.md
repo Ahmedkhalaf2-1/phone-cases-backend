@@ -9,12 +9,18 @@ over them.
 ## 1. Build and start
 
 ```bash
-npm ci --omit=dev          # production dependencies only
+npm ci                      # dev dependencies ARE required: Nest CLI + TypeScript (build), Prisma CLI (migrate)
 npm run build               # compiles to dist/
 npm run prisma:generate     # regenerate the Prisma client against the built schema
 npm run prisma:migrate:deploy   # apply pending migrations - NEVER `migrate dev` in production
 npm run start:prod          # node dist/main.js
 ```
+
+**Scripted deploy (VPS, PM2):** `./deploy-backend.sh` runs the whole sequence below in the safe
+order - pull, `npm ci`, `prisma generate`, build, `prisma migrate status`/`deploy`, then
+`pm2 restart` of the single `contrast-backend` process (created from `ecosystem.config.js` on the first deploy) - and
+finishes with a `/api/v1/ready` health check. A failed build or migration stops the script before the
+running app is restarted. Back up PostgreSQL first when a deploy contains migrations (§7).
 
 `prisma:migrate:deploy` (not `prisma:migrate:dev`) is the production-safe command: it applies
 already-committed migrations without ever prompting, generating a new migration, or resetting
