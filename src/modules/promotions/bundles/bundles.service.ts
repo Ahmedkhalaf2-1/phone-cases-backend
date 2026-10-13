@@ -1,12 +1,16 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { BundleScope, Prisma } from '@prisma/client';
+import { BundleScope, Prisma, ProductStatus } from '@prisma/client';
 import { ResourceNotFoundException } from '../../../common/exceptions/app.exception';
 import { buildPaginatedResult } from '../../../common/dto/paginated-result';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AuditLogService } from '../../audit-log/audit-log.service';
 import type { AuthenticatedStaff } from '../../auth/types/authenticated-staff.type';
 import { BundleStatus, computeBundleStatus, resolveBundleSchedule } from './bundle-schedule.util';
-import { BundlePricingConfig, DEFAULT_BUNDLE_SIZE } from './bundle-pricing.util';
+import {
+  BundlePricingConfig,
+  DEFAULT_BUNDLE_SIZE,
+  guaranteedMinSavings,
+} from './bundle-pricing.util';
 import { BundleVariantOptionsQueryDto } from './dto/bundle-variant-options-query.dto';
 import { CreateBundleDto } from './dto/create-bundle.dto';
 import { UpdateBundleDto } from './dto/update-bundle.dto';
@@ -73,8 +77,40 @@ interface EffectiveBundleState {
   targetIds: string[];
 }
 
+/**
+ * What a customer may know about an active offer. Deliberately has no id,
+ * name or admin field - only what is needed to describe the deal.
+ */
+export interface PublicBundleOffer {
+  bundleSize: number;
+  fixedTotal: number;
+  currency: string;
+  scope: BundleScope;
+  requireDifferentPhoneModels: boolean;
+  isRepeatable: boolean;
+  allowCouponStacking: boolean;
+  /** Guaranteed minimum saving of any complete group; 0 when it cannot be proven. */
+  minSavings: number;
+  appliesTo: { type: 'ALL' } | { type: 'SELECTED'; productSlugs: string[] };
+}
+
+/** Display data may be this stale; it never feeds pricing. */
+const DISPLAY_CACHE_TTL_MS = 60_000;
+
 @Injectable()
 export class BundlesService {
+  private readonly priceInfoCache = new Map<
+    string,
+    { at: number; minUnitPrice: number | null; maxSurcharge: number }
+  >();
+  private publicOffersCache: { at: number; offers: PublicBundleOffer[] } | null = null;
+
+  /** An admin edit must show up in storefront messaging immediately, not after the TTL. */
+  private invalidateDisplayCache(): void {
+    this.publicOffersCache = null;
+    this.priceInfoCache.clear();
+  }
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditLogService: AuditLogService,
@@ -130,6 +166,7 @@ export class BundlesService {
       include: BUNDLE_INCLUDE,
     });
 
+    this.invalidateDisplayCache();
     await this.auditLogService.record({
       staffUserId: actor.id,
       action: 'bundle.create',
@@ -262,6 +299,7 @@ export class BundlesService {
       });
     });
 
+    this.invalidateDisplayCache();
     await this.auditLogService.record({
       staffUserId: actor.id,
       action: 'bundle.update',
@@ -284,6 +322,7 @@ export class BundlesService {
       }
       throw error;
     }
+    this.invalidateDisplayCache();
     await this.auditLogService.record({
       staffUserId: actor.id,
       action: 'bundle.delete',
@@ -293,7 +332,97 @@ export class BundlesService {
   }
 
   async findActiveForPricing(now: Date = new Date()): Promise<BundlePricingConfig[]> {
-    return this.prisma.$transaction((tx) => this.loadActiveForPricing(tx, now));
+    const configs = await this.prisma.$transaction((tx) => this.loadActiveForPricing(tx, now));
+    // Display-only extras (cheapest eligible price) for storefront messaging.
+    // Not attached on the order-creation path, which never needs them.
+    await this.attachDisplayPrices(configs);
+    return configs;
+  }
+
+  /** Active offers as customers may see them. Short-cached; never feeds pricing. */
+  async listPublicOffers(): Promise<PublicBundleOffer[]> {
+    const cached = this.publicOffersCache;
+    if (cached && Date.now() - cached.at < DISPLAY_CACHE_TTL_MS) return cached.offers;
+
+    const configs = await this.findActiveForPricing();
+    const offers: PublicBundleOffer[] = [];
+    for (const config of configs) {
+      const scope = config.scope ?? BundleScope.SPECIFIC_VARIANTS;
+      offers.push({
+        bundleSize: config.bundleSize ?? DEFAULT_BUNDLE_SIZE,
+        fixedTotal: config.fixedTotal,
+        currency: config.currency,
+        scope,
+        requireDifferentPhoneModels: config.requireDifferentPhoneModels,
+        isRepeatable: config.isRepeatable,
+        allowCouponStacking: config.allowCouponStacking,
+        minSavings: guaranteedMinSavings(config),
+        appliesTo:
+          scope === BundleScope.ALL_PRODUCTS
+            ? { type: 'ALL' }
+            : { type: 'SELECTED', productSlugs: await this.resolveProductSlugs(config) },
+      });
+    }
+    this.publicOffersCache = { at: Date.now(), offers };
+    return offers;
+  }
+
+  /** Variants a customer could actually buy that match this bundle's scope. */
+  private purchasableVariantWhere(config: BundlePricingConfig): Prisma.ProductVariantWhereInput {
+    const scope = config.scope ?? BundleScope.SPECIFIC_VARIANTS;
+    const scoped: Prisma.ProductVariantWhereInput =
+      scope === BundleScope.SPECIFIC_VARIANTS
+        ? { id: { in: [...config.eligibleVariants.keys()] } }
+        : this.variantWhereForScope(scope, [...(config.targetIds ?? [])]);
+    // AND, not an object spread: the scope filter itself constrains `product`
+    // (collection scope) and a spread would silently overwrite it.
+    return {
+      AND: [
+        scoped,
+        {
+          isActive: true,
+          currency: config.currency,
+          product: { status: ProductStatus.PUBLISHED },
+        },
+      ],
+    };
+  }
+
+  private async resolveProductSlugs(config: BundlePricingConfig): Promise<string[]> {
+    const rows = await this.prisma.productVariant.findMany({
+      where: this.purchasableVariantWhere(config),
+      select: { product: { select: { slug: true } } },
+      distinct: ['productId'],
+    });
+    return rows.map((row) => row.product.slug).sort();
+  }
+
+  private async attachDisplayPrices(configs: BundlePricingConfig[]): Promise<void> {
+    const now = Date.now();
+    await Promise.all(
+      configs.map(async (config) => {
+        const key = `${config.id}:${config.revision ?? 0}`;
+        let info = this.priceInfoCache.get(key);
+        if (!info || now - info.at >= DISPLAY_CACHE_TTL_MS) {
+          const result = await this.prisma.productVariant.aggregate({
+            where: this.purchasableVariantWhere(config),
+            _min: { price: true },
+          });
+          const surcharges = [...config.eligibleVariants.values()];
+          info = {
+            at: now,
+            minUnitPrice: result._min.price,
+            maxSurcharge:
+              config.scope === BundleScope.SPECIFIC_VARIANTS && surcharges.length > 0
+                ? Math.max(...surcharges)
+                : 0,
+          };
+          this.priceInfoCache.set(key, info);
+        }
+        config.minUnitPrice = info.minUnitPrice;
+        config.maxSurcharge = info.maxSurcharge;
+      }),
+    );
   }
 
   async findActiveForPricingInTransaction(
@@ -339,6 +468,7 @@ export class BundlesService {
       })
       .map((row) => ({
         id: row.id,
+        revision: row.updatedAt.getTime(),
         fixedTotal: row.fixedTotal as number,
         currency: row.currency as string,
         bundleSize: row.bundleSize,

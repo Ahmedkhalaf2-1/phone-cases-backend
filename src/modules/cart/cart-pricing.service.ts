@@ -3,8 +3,10 @@ import { CouponType, Prisma } from '@prisma/client';
 import { DEFAULT_LOCALE, Locale, pickLocalized } from '../../common/i18n/localized-field';
 import {
   BundlePricingConfig,
+  BundleProgress,
   BundleSourceLine,
   computeBundleInstances,
+  computeBundleProgress,
 } from '../promotions/bundles/bundle-pricing.util';
 
 // Fetches only the ONE image that will actually be shown (primary first,
@@ -130,6 +132,11 @@ export interface CartView {
   discountTotal: number;
   /** Total savings from applied bundle promotions - see BundlesService. */
   bundleDiscountTotal: number;
+  /**
+   * Additive, display-only: where the cart stands on the offer it is
+   * closest to (see computeBundleProgress). null when nothing eligible.
+   */
+  bundleProgress: BundleProgress | null;
   total: number;
   coupon: { code: string; type: CouponType; value: number } | null;
   couponWarning?: string;
@@ -218,6 +225,14 @@ export class CartPricingService {
     const bundleInstances = computeBundleInstances(bundleSourceLines, activeBundles, {
       couponIsApplied,
     });
+    const bundleProgress = computeBundleProgress(
+      bundleSourceLines,
+      activeBundles,
+      bundleInstances,
+      {
+        couponIsApplied,
+      },
+    );
 
     const bundleDiscountByLine = new Map<number, number>();
     let bundleDiscountTotal = 0;
@@ -252,6 +267,7 @@ export class CartPricingService {
       subtotal,
       discountTotal,
       bundleDiscountTotal,
+      bundleProgress,
       total: subtotal - discountTotal - bundleDiscountTotal,
       coupon: cart.coupon
         ? { code: cart.coupon.code, type: cart.coupon.type, value: cart.coupon.value }

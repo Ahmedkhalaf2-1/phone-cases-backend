@@ -32,6 +32,15 @@ export interface BundlePricingConfig {
   targetIds?: Set<string>;
   /** Units that make up one instance; defaults to DEFAULT_BUNDLE_SIZE. */
   bundleSize?: number;
+  /**
+   * Display-only (never read by pricing): the cheapest price any eligible
+   * unit can have, and the largest per-unit surcharge. They let storefront
+   * messaging state a *guaranteed minimum* saving without claiming more.
+   */
+  minUnitPrice?: number | null;
+  maxSurcharge?: number;
+  /** Display-only cache key: changes whenever the bundle is edited. */
+  revision?: number;
 }
 
 /** One cart/order line, indexed by its position in the caller's own item array. */
@@ -266,4 +275,153 @@ export function computeBundleInstances(
   }
 
   return results;
+}
+
+/**
+ * What the storefront needs to explain the offer a cart is working
+ * towards. Derived from the SAME eligibility function and the SAME
+ * grouping result the discount uses - nothing here is recomputed by the
+ * client and nothing in it changes what is charged.
+ */
+export interface BundleProgress {
+  bundleSize: number;
+  /** Price of one group, minor units (per-variant surcharges excluded). */
+  fixedTotal: number;
+  currency: string;
+  requireDifferentPhoneModels: boolean;
+  isRepeatable: boolean;
+  allowCouponStacking: boolean;
+  /** Eligible units currently in the cart. */
+  eligibleUnits: number;
+  /** Groups actually discounted right now (from computeBundleInstances). */
+  groupsApplied: number;
+  /**
+   * Eligible units still missing for the next group. null when no further
+   * group is possible/provable (e.g. a non-repeatable offer already
+   * applied, or enough units that the pricing rules still declined).
+   */
+  unitsNeeded: number | null;
+  /** A coupon is applied and this bundle may not stack with it: the bundle is skipped. */
+  blockedByCoupon: boolean;
+  /** Guaranteed minimum saving for completing the next group, only when provably > 0. */
+  savingsIfCompleted: number | null;
+}
+
+/**
+ * Guaranteed minimum saving of any complete group of this offer: the
+ * cheapest possible `bundleSize` units minus the group price (and the
+ * worst-case surcharges). 0 whenever that cannot be proven positive.
+ */
+export function guaranteedMinSavings(bundle: BundlePricingConfig): number {
+  const size = bundle.bundleSize ?? DEFAULT_BUNDLE_SIZE;
+  if (bundle.minUnitPrice === null || bundle.minUnitPrice === undefined) return 0;
+  const worst = bundle.fixedTotal + size * (bundle.maxSurcharge ?? 0);
+  return Math.max(0, size * bundle.minUnitPrice - worst);
+}
+
+/**
+ * Picks the single offer the cart is closest to / already benefiting from:
+ * most groups applied first, then fewest units still needed, then the
+ * lowest price per unit. Returns null when the cart has no eligible item
+ * for any active bundle.
+ */
+export function computeBundleProgress(
+  lines: BundleSourceLine[],
+  bundles: BundlePricingConfig[],
+  instances: BundleInstanceResult[],
+  options: { couponIsApplied: boolean },
+): BundleProgress | null {
+  if (bundles.length === 0 || lines.length === 0) return null;
+
+  // Units already consumed by ANY applied instance, per cart line.
+  const consumedByLine = new Map<number, number>();
+  for (const instance of instances) {
+    for (const allocation of instance.unitAllocations) {
+      consumedByLine.set(allocation.lineIndex, (consumedByLine.get(allocation.lineIndex) ?? 0) + 1);
+    }
+  }
+
+  const candidates: { progress: BundleProgress; perUnit: number }[] = [];
+
+  for (const bundle of bundles) {
+    const size = bundle.bundleSize ?? DEFAULT_BUNDLE_SIZE;
+    if (size < 2) continue;
+    const eligibleLines = lines.filter(
+      (line) => line.currency === bundle.currency && isLineEligible(line, bundle),
+    );
+    const eligibleUnits = eligibleLines.reduce((sum, line) => sum + line.quantity, 0);
+    if (eligibleUnits === 0) continue;
+
+    const blockedByCoupon = options.couponIsApplied && !bundle.allowCouponStacking;
+    const groupsApplied = instances.filter((i) => i.bundlePromotionId === bundle.id).length;
+
+    // Eligible units not consumed by any applied group.
+    const free: { price: number; phoneModelId: string | null }[] = [];
+    for (const line of eligibleLines) {
+      const left = line.quantity - (consumedByLine.get(line.lineIndex) ?? 0);
+      for (let i = 0; i < left; i += 1) {
+        free.push({ price: line.unitPrice, phoneModelId: line.phoneModelId });
+      }
+    }
+
+    let unitsNeeded: number | null;
+    let leftoverPrice = 0;
+    if (!bundle.isRepeatable && groupsApplied > 0) {
+      unitsNeeded = null;
+    } else if (bundle.requireDifferentPhoneModels) {
+      const cheapestPerModel = new Map<string, number>();
+      for (const unit of free) {
+        const key = unit.phoneModelId ?? '__no_phone_model__';
+        const current = cheapestPerModel.get(key);
+        if (current === undefined || unit.price < current) cheapestPerModel.set(key, unit.price);
+      }
+      unitsNeeded = cheapestPerModel.size >= size ? null : size - cheapestPerModel.size;
+      leftoverPrice = [...cheapestPerModel.values()].reduce((sum, price) => sum + price, 0);
+    } else {
+      unitsNeeded = free.length >= size ? null : size - free.length;
+      leftoverPrice = free.reduce((sum, unit) => sum + unit.price, 0);
+    }
+
+    let savingsIfCompleted: number | null = null;
+    if (
+      unitsNeeded !== null &&
+      !blockedByCoupon &&
+      bundle.minUnitPrice !== null &&
+      bundle.minUnitPrice !== undefined
+    ) {
+      // Lower bound: units already in the cart at their real price, the
+      // missing ones at the cheapest eligible price, worst-case surcharges.
+      const lowestGroupPrice = leftoverPrice + unitsNeeded * bundle.minUnitPrice;
+      const highestGroupCost = bundle.fixedTotal + size * (bundle.maxSurcharge ?? 0);
+      const saving = lowestGroupPrice - highestGroupCost;
+      savingsIfCompleted = saving > 0 ? saving : null;
+    }
+
+    candidates.push({
+      perUnit: bundle.fixedTotal / size,
+      progress: {
+        bundleSize: size,
+        fixedTotal: bundle.fixedTotal,
+        currency: bundle.currency,
+        requireDifferentPhoneModels: bundle.requireDifferentPhoneModels,
+        isRepeatable: bundle.isRepeatable,
+        allowCouponStacking: bundle.allowCouponStacking,
+        eligibleUnits,
+        groupsApplied: blockedByCoupon ? 0 : groupsApplied,
+        unitsNeeded,
+        blockedByCoupon,
+        savingsIfCompleted,
+      },
+    });
+  }
+
+  if (candidates.length === 0) return null;
+  candidates.sort(
+    (a, b) =>
+      b.progress.groupsApplied - a.progress.groupsApplied ||
+      (a.progress.unitsNeeded ?? Number.POSITIVE_INFINITY) -
+        (b.progress.unitsNeeded ?? Number.POSITIVE_INFINITY) ||
+      a.perUnit - b.perUnit,
+  );
+  return candidates[0].progress;
 }

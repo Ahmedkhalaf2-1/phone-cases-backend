@@ -2,6 +2,8 @@ import {
   BundlePricingConfig,
   BundleSourceLine,
   computeBundleInstances,
+  computeBundleProgress,
+  guaranteedMinSavings,
 } from './bundle-pricing.util';
 
 function bundle(overrides: Partial<BundlePricingConfig> = {}): BundlePricingConfig {
@@ -434,5 +436,126 @@ describe('computeBundleInstances - eligibility scopes and bundle size', () => {
       line({ lineIndex: 2, variantId: 'c', phoneModelId: 'm3', unitPrice: 30000 }),
     ];
     expect(computeBundleInstances(three, [config], { couponIsApplied: false })).toHaveLength(1);
+  });
+});
+
+describe('computeBundleProgress (storefront messaging, derived from the real grouping)', () => {
+  // "Any 2 for 450" over the whole catalog; cheapest eligible case costs 250.
+  const offer = (overrides: Partial<BundlePricingConfig> = {}): BundlePricingConfig => ({
+    id: 'any-2',
+    fixedTotal: 45000,
+    currency: 'EGP',
+    scope: 'ALL_PRODUCTS',
+    requireDifferentPhoneModels: false,
+    isRepeatable: true,
+    allowCouponStacking: false,
+    eligibleVariants: new Map(),
+    minUnitPrice: 25000,
+    maxSurcharge: 0,
+    ...overrides,
+  });
+  const cart = (...prices: number[]) =>
+    prices.map((unitPrice, i) =>
+      line({ lineIndex: i, variantId: `v${i}`, phoneModelId: `m${i}`, unitPrice }),
+    );
+  const progress = (
+    lines: BundleSourceLine[],
+    bundles: BundlePricingConfig[] = [offer()],
+    couponIsApplied = false,
+  ) =>
+    computeBundleProgress(
+      lines,
+      bundles,
+      computeBundleInstances(lines, bundles, { couponIsApplied }),
+      { couponIsApplied },
+    );
+
+  it('is null with no eligible item (empty cart, or nothing matches the offer)', () => {
+    expect(progress([])).toBeNull();
+    const specific = offer({ scope: 'SPECIFIC_VARIANTS', eligibleVariants: new Map([['x', 0]]) });
+    expect(progress(cart(25000), [specific])).toBeNull();
+  });
+
+  it('1 eligible item: needs 1 more, with a proven saving (250 + 250 - 450 = 50)', () => {
+    const result = progress(cart(25000))!;
+    expect(result).toMatchObject({
+      bundleSize: 2,
+      fixedTotal: 45000,
+      eligibleUnits: 1,
+      groupsApplied: 0,
+      unitsNeeded: 1,
+      blockedByCoupon: false,
+      savingsIfCompleted: 5000,
+    });
+  });
+
+  it('uses the real price of what is already in the cart in the saving bound', () => {
+    expect(progress(cart(30000))!.savingsIfCompleted).toBe(10000); // 300 + >=250 - 450
+  });
+
+  it('does not claim a saving it cannot prove', () => {
+    expect(progress(cart(25000), [offer({ minUnitPrice: null })])!.savingsIfCompleted).toBeNull();
+    // cheapest items are cheaper than the bundle price: no guaranteed saving
+    expect(progress(cart(20000), [offer({ minUnitPrice: 20000 })])!.savingsIfCompleted).toBeNull();
+  });
+
+  it('2 eligible items: applied once, nothing outstanding to claim', () => {
+    const result = progress(cart(25000, 25000))!;
+    expect(result.groupsApplied).toBe(1);
+    expect(result.eligibleUnits).toBe(2);
+    expect(result.unitsNeeded).toBe(2); // a fresh group would need 2 more
+  });
+
+  it('4 eligible items, repeatable: two groups; 5 items: 2 groups and 1 more needed', () => {
+    expect(progress(cart(25000, 25000, 25000, 25000))!.groupsApplied).toBe(2);
+    const five = progress(cart(25000, 25000, 25000, 25000, 25000))!;
+    expect(five.groupsApplied).toBe(2);
+    expect(five.unitsNeeded).toBe(1);
+  });
+
+  it('non-repeatable offer: one group, then no further progress to suggest', () => {
+    const result = progress(cart(25000, 25000, 25000, 25000), [offer({ isRepeatable: false })])!;
+    expect(result.groupsApplied).toBe(1);
+    expect(result.unitsNeeded).toBeNull();
+    expect(result.savingsIfCompleted).toBeNull();
+  });
+
+  it('a coupon that blocks the bundle is reported instead of a false "applied"', () => {
+    const result = progress(cart(25000, 25000), [offer()], true)!;
+    expect(result.blockedByCoupon).toBe(true);
+    expect(result.groupsApplied).toBe(0);
+    expect(result.savingsIfCompleted).toBeNull();
+    // when the offer allows stacking, the coupon does not block it
+    const stacking = progress(cart(25000, 25000), [offer({ allowCouponStacking: true })], true)!;
+    expect(stacking.blockedByCoupon).toBe(false);
+    expect(stacking.groupsApplied).toBe(1);
+  });
+
+  it('different-phone-model offers count distinct models, not units', () => {
+    const sameModel = [
+      line({ lineIndex: 0, variantId: 'a', phoneModelId: 'm1', unitPrice: 25000 }),
+      line({ lineIndex: 1, variantId: 'b', phoneModelId: 'm1', unitPrice: 25000 }),
+    ];
+    const result = progress(sameModel, [offer({ requireDifferentPhoneModels: true })])!;
+    expect(result.requireDifferentPhoneModels).toBe(true);
+    expect(result.groupsApplied).toBe(0);
+    expect(result.eligibleUnits).toBe(2);
+    expect(result.unitsNeeded).toBe(1); // one more, for a different model
+  });
+
+  it('per-variant surcharges are counted against the proven saving', () => {
+    const surcharged = offer({ maxSurcharge: 3000 });
+    // 2 * 250 - (450 + 2 * 30) = -10 -> cannot be proven
+    expect(progress(cart(25000), [surcharged])!.savingsIfCompleted).toBeNull();
+    expect(guaranteedMinSavings(surcharged)).toBe(0);
+    expect(guaranteedMinSavings(offer())).toBe(5000);
+  });
+
+  it('with several offers, reports the one already applied (then the closest to completion)', () => {
+    const cheapPair = offer({ id: 'pair', fixedTotal: 45000 });
+    const triple = offer({ id: 'triple', bundleSize: 3, fixedTotal: 60000 });
+    const lines = cart(25000, 25000);
+    expect(progress(lines, [triple, cheapPair])!.bundleSize).toBe(2); // pair applied
+    expect(progress(cart(25000), [triple, cheapPair])!.bundleSize).toBe(2); // needs 1 vs 2
   });
 });

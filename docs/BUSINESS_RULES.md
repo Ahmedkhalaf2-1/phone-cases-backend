@@ -676,6 +676,26 @@ time against live catalog relations, never against a snapshot of ids:
 - Admin picker endpoints: `GET /admin/bundles/variant-options` (paginated, filterable) and
   `GET /admin/bundles/variant-options/ids` (capped at 1000 ids, for "select all results").
 
+### 31b. Customer-facing bundle messaging (display only)
+
+Two additive, read-only surfaces let the storefront explain an offer. Neither affects what is charged;
+totals are always computed by the server (`computeBundleInstances`).
+
+- **`GET /api/v1/bundles/active`** (public, cached ~30s HTTP / 60s server-side, invalidated on admin
+  edits): one entry per active, complete bundle - `bundleSize`, `fixedTotal`, `currency`, `scope`,
+  `requireDifferentPhoneModels`, `isRepeatable`, `allowCouponStacking`, `minSavings`, and
+  `appliesTo` (`ALL`, or `SELECTED` with the **product slugs** a customer can actually buy under that
+  scope). It never includes ids, internal names or other admin fields.
+- **`minSavings` is a proof, not an estimate:** `bundleSize x cheapest eligible price - fixedTotal`
+  (minus worst-case per-variant surcharges), floored at 0. It is 0 whenever a saving cannot be
+  guaranteed, and the storefront then states no amount.
+- **`bundleProgress`** on the cart view (`null` when nothing eligible is in the cart): the offer the
+  cart is closest to - most groups applied, then fewest units still needed - with `eligibleUnits`,
+  `groupsApplied` (the real grouping result), `unitsNeeded` (`null` when no further group is
+  possible, e.g. a non-repeatable offer already applied), `blockedByCoupon` and `savingsIfCompleted`
+  (same proof rule as `minSavings`, using the units already in the cart). It reuses the same
+  eligibility function and grouping pass as the discount, so it cannot drift from it.
+
 ## 32. Minimal manual refund/return administration
 
 Staff-only; no customer-facing refund request flow and no automated money movement anywhere - a
