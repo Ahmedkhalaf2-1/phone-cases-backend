@@ -24,7 +24,7 @@ async function main(): Promise<void> {
     await prisma.staffUser.create({
       data: {
         email: ownerEmail,
-        fullName: 'Owner Admin (demo)',
+        fullName: process.env.SEED_OWNER_ADMIN_NAME ?? "Mo'men Afifi",
         role: StaffRole.OWNER_ADMIN,
         passwordHash,
       },
