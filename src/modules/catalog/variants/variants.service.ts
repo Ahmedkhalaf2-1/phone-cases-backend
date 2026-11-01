@@ -118,8 +118,12 @@ export class VariantsService {
     }
   }
 
-  private assertCompareAtPriceIsValid(price: number, compareAtPrice: number | undefined): void {
-    if (compareAtPrice !== undefined && compareAtPrice <= price) {
+  /** `null` clears the reference price (ends a sale), so it's always valid. */
+  private assertCompareAtPriceIsValid(
+    price: number,
+    compareAtPrice: number | null | undefined,
+  ): void {
+    if (compareAtPrice !== undefined && compareAtPrice !== null && compareAtPrice <= price) {
       throw new BadRequestException(
         'compareAtPrice must be greater than price to represent a genuine reference price',
       );

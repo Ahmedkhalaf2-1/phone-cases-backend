@@ -99,6 +99,13 @@ export function toPublicProductSummary(product: AdminProductWithRelations, local
   const availableVariants = product.variants.filter((variant) => variant.isActive);
   const prices = availableVariants.map((variant) => variant.price);
   const minPrice = prices.length > 0 ? Math.min(...prices) : null;
+  // The "was" price shown crossed out next to effectivePriceFrom: the
+  // highest reference price among the variants selling at that minimum.
+  const compareAtPrices = availableVariants
+    .filter((variant) => variant.price === minPrice && variant.compareAtPrice !== null)
+    .map((variant) => variant.compareAtPrice as number)
+    .filter((compareAt) => minPrice !== null && compareAt > minPrice);
+  const compareAtPriceFrom = compareAtPrices.length > 0 ? Math.max(...compareAtPrices) : null;
   const primaryMedia = product.media.find((m) => m.isPrimary) ?? product.media[0];
 
   return {
@@ -110,6 +117,7 @@ export function toPublicProductSummary(product: AdminProductWithRelations, local
       : null,
     currency: availableVariants[0]?.currency ?? product.currency,
     effectivePriceFrom: minPrice,
+    compareAtPriceFrom,
     isAvailable: availableVariants.some((variant) => isVariantAvailable(variant)),
     primaryImage: primaryMedia
       ? {

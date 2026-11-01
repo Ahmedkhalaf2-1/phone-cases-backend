@@ -35,12 +35,13 @@ export class CreateVariantDto {
 
   @ApiPropertyOptional({
     description:
-      'Genuine higher reference price in integer minor units, must be greater than price',
+      'Genuine higher reference price in integer minor units, must be greater than price. Send null on update to clear it (end a sale).',
+    nullable: true,
   })
   @IsOptional()
   @IsInt()
   @IsPositive()
-  compareAtPrice?: number;
+  compareAtPrice?: number | null;
 
   @ApiPropertyOptional({ default: true })
   @IsOptional()

@@ -49,12 +49,14 @@ export class OrdersAdminController {
 
   @Patch(':id/fulfillment-status')
   @Roles(StaffRole.OWNER_ADMIN, StaffRole.ORDER_OPERATOR)
-  updateFulfillmentStatus(
+  async updateFulfillmentStatus(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateFulfillmentStatusDto,
     @CurrentStaff() actor: AuthenticatedStaff,
   ) {
-    return this.ordersService.updateFulfillmentStatus(id, dto.status, actor);
+    return toAdminOrderView(
+      await this.ordersService.updateFulfillmentStatus(id, dto.status, actor),
+    );
   }
 
   // Financial action - restricted to OWNER_ADMIN only, per least-privilege
@@ -63,12 +65,12 @@ export class OrdersAdminController {
   // confirmed - uploading a screenshot never does this by itself.
   @Patch(':id/payment-status')
   @Roles(StaffRole.OWNER_ADMIN)
-  updatePaymentStatus(
+  async updatePaymentStatus(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdatePaymentStatusDto,
     @CurrentStaff() actor: AuthenticatedStaff,
   ) {
-    return this.ordersService.updatePaymentStatus(id, dto.status, actor);
+    return toAdminOrderView(await this.ordersService.updatePaymentStatus(id, dto.status, actor));
   }
 
   // A judgment call about whether funds were actually received - treated
@@ -88,11 +90,11 @@ export class OrdersAdminController {
   // fulfillment or payment status.
   @Patch(':id/flag-late-payment')
   @Roles(StaffRole.OWNER_ADMIN)
-  flagLatePayment(
+  async flagLatePayment(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: FlagLatePaymentDto,
     @CurrentStaff() actor: AuthenticatedStaff,
   ) {
-    return this.ordersService.flagLatePayment(id, dto.note, actor);
+    return toAdminOrderView(await this.ordersService.flagLatePayment(id, dto.note, actor));
   }
 }
