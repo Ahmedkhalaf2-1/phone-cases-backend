@@ -10,7 +10,9 @@ import type { AuthenticatedStaff } from '../../auth/types/authenticated-staff.ty
 import { CreatePhoneModelDto } from './dto/create-phone-model.dto';
 import { UpdatePhoneModelDto } from './dto/update-phone-model.dto';
 
-const PHONE_MODEL_WITH_BRAND = { include: { brand: true } } satisfies Prisma.PhoneModelDefaultArgs;
+const PHONE_MODEL_WITH_BRAND = {
+  include: { brand: { include: { logoMediaAsset: true } } },
+} satisfies Prisma.PhoneModelDefaultArgs;
 export type PhoneModelWithBrand = Prisma.PhoneModelGetPayload<typeof PHONE_MODEL_WITH_BRAND>;
 
 @Injectable()

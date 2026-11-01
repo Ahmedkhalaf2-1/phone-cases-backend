@@ -16,6 +16,7 @@ export class PhoneBrandsPublicController {
       id: brand.id,
       slug: brand.slug,
       name: pickLocalized(brand.nameEn, brand.nameAr, query.locale ?? DEFAULT_LOCALE),
+      logoUrl: brand.logoMediaAsset?.url ?? null,
     }));
   }
 }

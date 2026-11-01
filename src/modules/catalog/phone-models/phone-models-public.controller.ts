@@ -22,6 +22,7 @@ export class PhoneModelsPublicController {
         id: model.brand.id,
         slug: model.brand.slug,
         name: pickLocalized(model.brand.nameEn, model.brand.nameAr, locale),
+        logoUrl: model.brand.logoMediaAsset?.url ?? null,
       },
     }));
   }

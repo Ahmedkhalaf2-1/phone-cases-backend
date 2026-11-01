@@ -99,6 +99,11 @@ model PhoneBrand {
   displayOrder Int     @default(0)
   isActive     Boolean @default(true)
 
+  // Optional uploaded logo. Without one, the storefront/admin fall back to
+  // a built-in logo for well-known brands, then to the brand's initial.
+  logoMediaAssetId String?
+  logoMediaAsset   MediaAsset? @relation("PhoneBrandLogo", fields: [logoMediaAssetId], references: [id], onDelete: SetNull)
+
   models PhoneModel[]
 
   createdAt DateTime @default(now())
@@ -106,6 +111,7 @@ model PhoneBrand {
 
   bundleScopeTargets BundleScopeTarget[]
 
+  @@index([logoMediaAssetId])
   @@map("phone_brands")
 }
 
@@ -581,6 +587,7 @@ model MediaAsset {
   variantMedia     VariantMedia[]
   homepageSections HomepageSection[]
   collectionCovers Collection[]      @relation("CollectionCover")
+  phoneBrandLogos  PhoneBrand[]      @relation("PhoneBrandLogo")
 
   createdAt DateTime @default(now())
 
